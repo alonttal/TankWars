@@ -12,6 +12,11 @@ export class SoundManager {
   private chargingOsc: OscillatorNode | null = null;
   private chargingGain: GainNode | null = null;
 
+  // Volume controls (0-100)
+  private masterVolume: number = 80;
+  private musicVolume: number = 60;
+  private sfxVolume: number = 80;
+
   constructor() {
     // AudioContext is created on first user interaction to comply with browser policies
   }
@@ -51,6 +56,48 @@ export class SoundManager {
     return this.musicPlaying;
   }
 
+  // Volume controls
+  getMasterVolume(): number {
+    return this.masterVolume;
+  }
+
+  setMasterVolume(volume: number): void {
+    this.masterVolume = Math.max(0, Math.min(100, volume));
+    this.updateMusicVolume();
+  }
+
+  getMusicVolume(): number {
+    return this.musicVolume;
+  }
+
+  setMusicVolume(volume: number): void {
+    this.musicVolume = Math.max(0, Math.min(100, volume));
+    this.updateMusicVolume();
+  }
+
+  getSfxVolume(): number {
+    return this.sfxVolume;
+  }
+
+  setSfxVolume(volume: number): void {
+    this.sfxVolume = Math.max(0, Math.min(100, volume));
+  }
+
+  private getEffectiveVolume(baseVolume: number, isMusic: boolean): number {
+    const volumeMultiplier = isMusic ? this.musicVolume : this.sfxVolume;
+    return (baseVolume * this.masterVolume * volumeMultiplier) / 10000;
+  }
+
+  private updateMusicVolume(): void {
+    if (this.musicGain) {
+      const ctx = this.getContext();
+      if (ctx) {
+        const volume = this.getEffectiveVolume(0.15, true);
+        this.musicGain.gain.setValueAtTime(volume, ctx.currentTime);
+      }
+    }
+  }
+
   // Background music - military/march style
   startMusic(): void {
     if (!this.musicEnabled || this.musicPlaying) return;
@@ -62,7 +109,8 @@ export class SoundManager {
 
     // Create master gain for music
     this.musicGain = ctx.createGain();
-    this.musicGain.gain.setValueAtTime(0.15, ctx.currentTime);
+    const musicVol = this.getEffectiveVolume(0.15, true);
+    this.musicGain.gain.setValueAtTime(musicVol, ctx.currentTime);
     this.musicGain.connect(ctx.destination);
 
     // Play music loop
@@ -340,6 +388,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const vol = this.getEffectiveVolume(1, false);
 
     // Create oscillator for the main tone
     const osc = ctx.createOscillator();
@@ -354,14 +403,14 @@ export class SoundManager {
     osc.frequency.exponentialRampToValueAtTime(150, now + 0.1);
 
     // Quick attack, short decay
-    gainNode.gain.setValueAtTime(0.3, now);
+    gainNode.gain.setValueAtTime(0.3 * vol, now);
     gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
 
     osc.start(now);
     osc.stop(now + 0.15);
 
     // Add a bit of noise for "punch"
-    this.playNoiseBurst(0.1, 0.08);
+    this.playNoiseBurst(0.1, 0.08 * vol);
   }
 
   // Explosion sound - low rumble with noise
@@ -371,6 +420,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const vol = this.getEffectiveVolume(1, false);
 
     // Low frequency rumble
     const osc = ctx.createOscillator();
@@ -383,14 +433,14 @@ export class SoundManager {
     osc.frequency.setValueAtTime(150, now);
     osc.frequency.exponentialRampToValueAtTime(30, now + 0.5);
 
-    gainNode.gain.setValueAtTime(0.4, now);
+    gainNode.gain.setValueAtTime(0.4 * vol, now);
     gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
 
     osc.start(now);
     osc.stop(now + 0.5);
 
     // Add noise for explosion texture
-    this.playNoiseBurst(0.5, 0.4);
+    this.playNoiseBurst(0.5, 0.4 * vol);
 
     // Secondary lower boom
     const osc2 = ctx.createOscillator();
@@ -403,7 +453,7 @@ export class SoundManager {
     osc2.frequency.setValueAtTime(80, now);
     osc2.frequency.exponentialRampToValueAtTime(20, now + 0.4);
 
-    gain2.gain.setValueAtTime(0.5, now);
+    gain2.gain.setValueAtTime(0.5 * vol, now);
     gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
 
     osc2.start(now);
