@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tank Wars - Artillery Game</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+    <div id="controls">
+      <div id="player-info">
+        <span id="current-player">Player 1</span>
+        <span id="wind-info">Wind: 0</span>
+        <button id="music-btn" title="Toggle Music">🎵 ON</button>
+      </div>
+      <div id="input-controls">
+        <div class="control-group">
+          <label>Angle: <span id="angle-value">45</span>°</label>
+          <input type="range" id="angle-slider" min="0" max="180" value="45">
+        </div>
+        <div class="control-group">
+          <label>Power: <span id="power-value">0</span>%</label>
+          <input type="range" id="power-slider" min="0" max="100" value="0">
+        </div>
+        <button id="fire-btn">FIRE!</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/index.ts"></script>
+</body>
+</html>

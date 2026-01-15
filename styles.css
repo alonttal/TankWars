@@ -1,0 +1,175 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #1a1a2e;
+  font-family: 'Courier New', monospace;
+  color: #fff;
+}
+
+#game-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+#game-canvas {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(42, 42, 78, 0.95);
+  padding: 15px 25px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 500px;
+  max-width: 90%;
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 10;
+}
+
+#player-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 16px;
+  font-weight: bold;
+  gap: 15px;
+}
+
+#current-player {
+  color: #ff6b6b;
+}
+
+#wind-info {
+  color: #6bcfff;
+  flex: 1;
+  text-align: center;
+}
+
+#music-btn {
+  background: #4a4a6e;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  font-size: 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  transition: background 0.2s;
+}
+
+#music-btn:hover {
+  background: #5a5a8e;
+}
+
+#music-btn.off {
+  background: #333;
+  color: #888;
+}
+
+#input-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.control-group label {
+  font-size: 14px;
+  color: #aaa;
+}
+
+.control-group input[type="range"] {
+  width: 150px;
+  cursor: pointer;
+}
+
+#fire-btn {
+  background: #ff6b6b;
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  font-size: 18px;
+  font-weight: bold;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  transition: background 0.2s;
+  margin-left: auto;
+}
+
+#fire-btn:hover:not(:disabled) {
+  background: #ff8585;
+}
+
+#fire-btn:disabled {
+  background: #555;
+  cursor: not-allowed;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  background: #444;
+  height: 8px;
+  border-radius: 4px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #ff6b6b;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  #controls {
+    min-width: auto;
+    width: 95%;
+    padding: 10px 15px;
+  }
+
+  #input-controls {
+    gap: 10px;
+  }
+
+  .control-group input[type="range"] {
+    width: 100px;
+  }
+
+  #fire-btn {
+    padding: 12px 20px;
+    font-size: 16px;
+  }
+
+  #player-info {
+    font-size: 14px;
+  }
+}
