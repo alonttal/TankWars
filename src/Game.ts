@@ -26,7 +26,43 @@ interface FloatingText {
   text: string;
   color: string;
   life: number;
+  maxLife: number;
   vy: number;
+  scale: number;
+  isCritical: boolean;
+}
+
+interface ConfettiParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rotation: number;
+  rotationSpeed: number;
+  color: string;
+  size: number;
+  life: number;
+}
+
+interface Firework {
+  x: number;
+  y: number;
+  vy: number;
+  targetY: number;
+  exploded: boolean;
+  color: string;
+  sparks: FireworkSpark[];
+}
+
+interface FireworkSpark {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  color: string;
+  size: number;
+  trail: { x: number; y: number }[];
 }
 
 export class Game {
@@ -77,6 +113,21 @@ export class Game {
   private shakeOffsetX: number;
   private shakeOffsetY: number;
 
+  // Screen flash
+  private screenFlashIntensity: number;
+  private screenFlashColor: string;
+
+  // Hitstop (time slowdown on impact)
+  private hitstopTimer: number;
+
+  // Camera effects
+  private cameraZoom: number;
+  private targetCameraZoom: number;
+  private cameraOffsetX: number;
+  private cameraOffsetY: number;
+  private targetCameraOffsetX: number;
+  private targetCameraOffsetY: number;
+
   // Turn timer
   private turnTimeRemaining: number;
   private maxTurnTime: number;
@@ -87,7 +138,30 @@ export class Game {
   // Floating damage numbers
   private floatingTexts: FloatingText[];
 
+  // Victory confetti
+  private confetti: ConfettiParticle[];
+
+  // Victory fireworks
+  private fireworks: Firework[];
+  private fireworkSpawnTimer: number;
+
   private lastTime: number;
+
+  // Trajectory preview
+  private trajectoryPoints: { x: number; y: number }[];
+
+  // HUD health bar animations
+  private hudHealthAnimations: { current: number; target: number }[];
+
+  // Turn transition
+  private turnBannerAlpha: number;
+  private turnBannerText: string;
+  private turnBannerTimer: number;
+
+  // Menu transition
+  private menuTitlePulse: number;
+  private menuItemsSlideIn: number[];
+  private gameOverSlideIn: number;
 
   constructor() {
     this.canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -117,11 +191,31 @@ export class Game {
     this.shakeIntensity = 0;
     this.shakeOffsetX = 0;
     this.shakeOffsetY = 0;
+    this.screenFlashIntensity = 0;
+    this.screenFlashColor = '#FFF';
+    this.hitstopTimer = 0;
+    this.cameraZoom = 1;
+    this.targetCameraZoom = 1;
+    this.cameraOffsetX = 0;
+    this.cameraOffsetY = 0;
+    this.targetCameraOffsetX = 0;
+    this.targetCameraOffsetY = 0;
     this.maxTurnTime = 30; // 30 seconds per turn
     this.turnTimeRemaining = this.maxTurnTime;
     this.playerStats = [];
     this.floatingTexts = [];
+    this.confetti = [];
+    this.fireworks = [];
+    this.fireworkSpawnTimer = 0;
     this.lastTime = 0;
+    this.trajectoryPoints = [];
+    this.hudHealthAnimations = [];
+    this.turnBannerAlpha = 0;
+    this.turnBannerText = '';
+    this.turnBannerTimer = 0;
+    this.menuTitlePulse = 0;
+    this.menuItemsSlideIn = [];
+    this.gameOverSlideIn = 0;
 
     // Menu setup
     this.selectedMenuItem = 0;
@@ -215,6 +309,9 @@ export class Game {
         if (e.key === 'Enter' || e.key === ' ') {
           this.state = 'MENU';
           this.selectedMenuItem = 0;
+          // Reset menu animations
+          this.menuTitlePulse = 0;
+          this.menuItemsSlideIn = [];
         }
         return;
       }
@@ -286,6 +383,9 @@ export class Game {
       } else if (this.state === 'GAME_OVER') {
         this.state = 'MENU';
         this.selectedMenuItem = 0;
+        // Reset menu animations
+        this.menuTitlePulse = 0;
+        this.menuItemsSlideIn = [];
       }
     });
   }
@@ -342,6 +442,9 @@ export class Game {
     this.state = 'MENU';
     this.selectedMenuItem = 0;
     soundManager.stopMusic();
+    // Reset menu animations
+    this.menuTitlePulse = 0;
+    this.menuItemsSlideIn = [];
   }
 
   private openSettings(): void {
@@ -422,8 +525,36 @@ export class Game {
   }
 
   private update(deltaTime: number): void {
+    // Handle hitstop (time slowdown)
+    let effectiveDelta = deltaTime;
+    if (this.hitstopTimer > 0) {
+      this.hitstopTimer -= deltaTime;
+      effectiveDelta = deltaTime * 0.1; // 10% speed during hitstop
+      if (this.hitstopTimer <= 0) {
+        this.hitstopTimer = 0;
+      }
+    }
+
     // Update screen shake
     this.updateScreenShake(deltaTime);
+
+    // Update screen flash
+    if (this.screenFlashIntensity > 0) {
+      this.screenFlashIntensity -= deltaTime * 3; // Fade out over ~0.33 seconds
+      if (this.screenFlashIntensity < 0) this.screenFlashIntensity = 0;
+    }
+
+    // Smooth camera zoom and offset with eased interpolation
+    const cameraLerpFactor = Math.min(1, deltaTime * 4);
+    const zoomDiff = this.targetCameraZoom - this.cameraZoom;
+    const xDiff = this.targetCameraOffsetX - this.cameraOffsetX;
+    const yDiff = this.targetCameraOffsetY - this.cameraOffsetY;
+    this.cameraZoom += zoomDiff * this.easeOutCubic(cameraLerpFactor);
+    this.cameraOffsetX += xDiff * this.easeOutCubic(cameraLerpFactor);
+    this.cameraOffsetY += yDiff * this.easeOutCubic(cameraLerpFactor);
+
+    // Update terrain (clouds, wind particles)
+    this.terrain.update(effectiveDelta, this.wind);
 
     // Update turn timer (only during human player's turn)
     if (this.state === 'PLAYING' && !this.isAITurn()) {
@@ -456,11 +587,62 @@ export class Game {
       this.powerSlider.value = Math.round(newPower).toString();
       this.powerSlider.dispatchEvent(new Event('input'));
       soundManager.updateChargingPitch(newPower);
+
+      // Update tank charging particles
+      const tank = this.tanks[this.currentPlayerIndex];
+      if (tank) {
+        tank.updateCharging(deltaTime, newPower);
+      }
     }
 
     // Update tanks (smoke particles, damage flash)
     for (const tank of this.tanks) {
-      tank.update(deltaTime);
+      tank.update(effectiveDelta);
+    }
+
+    // Calculate trajectory preview during PLAYING state
+    if (this.state === 'PLAYING' && !this.isAITurn()) {
+      this.calculateTrajectory();
+    } else {
+      this.trajectoryPoints = [];
+    }
+
+    // Update turn banner fade
+    if (this.turnBannerTimer > 0) {
+      this.turnBannerTimer -= deltaTime;
+      if (this.turnBannerTimer <= 0.5) {
+        this.turnBannerAlpha = this.turnBannerTimer / 0.5; // Fade out in last 0.5s
+      }
+      if (this.turnBannerTimer <= 0) {
+        this.turnBannerAlpha = 0;
+      }
+    }
+
+    // Update menu animations
+    this.menuTitlePulse += deltaTime * 2;
+
+    // Update menu item slide-in animations
+    if (this.state === 'MENU') {
+      // Initialize slide-in values if needed
+      if (this.menuItemsSlideIn.length !== this.menuItems.length) {
+        this.menuItemsSlideIn = this.menuItems.map(() => 0);
+      }
+      // Animate each item sliding in with staggered timing
+      for (let i = 0; i < this.menuItemsSlideIn.length; i++) {
+        const target = 1;
+        const speed = 4;
+        const delay = i * 0.1; // Stagger delay
+        if (this.menuTitlePulse > delay) {
+          this.menuItemsSlideIn[i] += (target - this.menuItemsSlideIn[i]) * Math.min(1, deltaTime * speed);
+        }
+      }
+    }
+
+    // Update game over slide-in animation
+    if (this.state === 'GAME_OVER') {
+      this.gameOverSlideIn += (1 - this.gameOverSlideIn) * Math.min(1, deltaTime * 3);
+    } else {
+      this.gameOverSlideIn = 0;
     }
 
     if (this.state === 'AI_THINKING') {
@@ -475,7 +657,14 @@ export class Game {
     if (this.state === 'FIRING') {
       // Update projectile
       if (this.projectile) {
-        const result = this.projectile.update(deltaTime, this.terrain, this.tanks, this.wind);
+        const result = this.projectile.update(effectiveDelta, this.terrain, this.tanks, this.wind);
+
+        // Camera follows projectile with slight lag
+        if (this.projectile.active) {
+          this.targetCameraOffsetX = (BASE_WIDTH / 2 - this.projectile.x) * 0.15;
+          this.targetCameraOffsetY = (BASE_HEIGHT / 2 - this.projectile.y) * 0.15;
+          this.targetCameraZoom = 1.05; // Slight zoom while projectile is flying
+        }
 
         if (!result.active) {
           if (result.hit) {
@@ -488,7 +677,18 @@ export class Game {
             explosion.applyDamage(this.tanks, this.terrain, this.projectile.owner);
             this.explosions.push(explosion);
             soundManager.playExplosion();
-            this.triggerScreenShake(12); // Shake intensity
+
+            // Trigger hitstop for impact feel
+            this.triggerHitstop(0.08);
+
+            // Stronger screen shake on impact
+            this.triggerScreenShake(18); // Stronger shake
+            this.triggerScreenFlash('#FFA500', 0.5); // Stronger orange flash on impact
+
+            // Reset camera on impact
+            this.targetCameraZoom = 1;
+            this.targetCameraOffsetX = 0;
+            this.targetCameraOffsetY = 0;
 
             // Track damage dealt and hits
             let totalDamage = 0;
@@ -501,13 +701,17 @@ export class Game {
                   hitCount++;
 
                   // Spawn floating damage number
+                  const isCritical = damage >= 40;
                   this.floatingTexts.push({
                     x: this.tanks[i].x,
                     y: this.tanks[i].y - 40,
-                    text: `-${damage}`,
-                    color: '#FF6B6B',
-                    life: 1.5,
-                    vy: -30,
+                    text: isCritical ? `CRITICAL! -${damage}` : `-${damage}`,
+                    color: isCritical ? '#FF0000' : '#FF6B6B',
+                    life: isCritical ? 2.0 : 1.5,
+                    maxLife: isCritical ? 2.0 : 1.5,
+                    vy: isCritical ? -50 : -30,
+                    scale: isCritical ? 1.5 : 1.0,
+                    isCritical,
                   });
                 }
               }
@@ -516,6 +720,11 @@ export class Game {
               this.playerStats[shooterIndex].hits++;
             }
             this.playerStats[shooterIndex].damageDealt += totalDamage;
+          } else {
+            // Missed - reset camera
+            this.targetCameraZoom = 1;
+            this.targetCameraOffsetX = 0;
+            this.targetCameraOffsetY = 0;
           }
           this.projectile = null;
         }
@@ -523,16 +732,21 @@ export class Game {
 
       // Update explosions
       for (const explosion of this.explosions) {
-        explosion.update(deltaTime);
+        explosion.update(effectiveDelta);
       }
       this.explosions = this.explosions.filter(e => e.active);
 
       // Update floating texts
       for (const ft of this.floatingTexts) {
-        ft.y += ft.vy * deltaTime;
-        ft.life -= deltaTime;
+        ft.y += ft.vy * effectiveDelta;
+        ft.vy += 10 * effectiveDelta; // Slight deceleration
+        ft.life -= effectiveDelta;
       }
       this.floatingTexts = this.floatingTexts.filter(ft => ft.life > 0);
+
+      // Update confetti and fireworks
+      this.updateConfetti(effectiveDelta);
+      this.updateFireworks(effectiveDelta);
 
       // Check if firing phase is complete
       if (!this.projectile && this.explosions.length === 0) {
@@ -550,6 +764,13 @@ export class Game {
     this.ctx.save();
     this.ctx.scale(SCALE_X, SCALE_Y);
 
+    // Apply camera zoom and offset (centered)
+    if (this.cameraZoom !== 1 || this.cameraOffsetX !== 0 || this.cameraOffsetY !== 0) {
+      this.ctx.translate(BASE_WIDTH / 2, BASE_HEIGHT / 2);
+      this.ctx.scale(this.cameraZoom, this.cameraZoom);
+      this.ctx.translate(-BASE_WIDTH / 2 + this.cameraOffsetX, -BASE_HEIGHT / 2 + this.cameraOffsetY);
+    }
+
     // Apply screen shake offset
     if (this.shakeIntensity > 0) {
       this.ctx.translate(this.shakeOffsetX, this.shakeOffsetY);
@@ -564,11 +785,21 @@ export class Game {
     // Render terrain
     this.terrain.render(this.ctx);
 
+    // Render trajectory preview (behind tanks)
+    if (this.state === 'PLAYING' && !this.isAITurn()) {
+      this.renderTrajectory();
+    }
+
     // Render tanks
     for (let i = 0; i < this.tanks.length; i++) {
       const isCurrentAndPlaying = i === this.currentPlayerIndex &&
         (this.state === 'PLAYING' || this.state === 'AI_THINKING');
-      this.tanks[i].render(this.ctx, isCurrentAndPlaying);
+      this.tanks[i].render(this.ctx, isCurrentAndPlaying, this.isChargingPower);
+    }
+
+    // Render power meter above tank when charging
+    if (this.isChargingPower) {
+      this.renderPowerMeter();
     }
 
     // Render projectile
@@ -581,20 +812,54 @@ export class Game {
       explosion.render(this.ctx);
     }
 
-    // Render floating damage numbers
+    // Render floating damage numbers with effects
     for (const ft of this.floatingTexts) {
-      const alpha = Math.min(1, ft.life);
+      const alpha = Math.min(1, ft.life / (ft.maxLife * 0.5));
+      const lifeRatio = ft.life / ft.maxLife;
+
+      // Scale animation - pop in then shrink
+      let currentScale = ft.scale;
+      if (lifeRatio > 0.8) {
+        currentScale *= 1.0 + (1.0 - (lifeRatio - 0.8) / 0.2) * 0.3; // Pop effect
+      }
+
+      this.ctx.save();
       this.ctx.globalAlpha = alpha;
+      this.ctx.translate(ft.x, ft.y);
+      this.ctx.scale(currentScale, currentScale);
+
+      // Critical hit shake effect
+      if (ft.isCritical && lifeRatio > 0.5) {
+        const shake = (Math.random() - 0.5) * 4;
+        this.ctx.translate(shake, shake);
+      }
+
       this.ctx.fillStyle = ft.color;
       this.ctx.font = 'bold 18px "Courier New"';
       this.ctx.textAlign = 'center';
-      this.ctx.fillText(ft.text, ft.x, ft.y);
-      this.ctx.globalAlpha = 1;
+
+      // Outline for better visibility
+      this.ctx.strokeStyle = '#000';
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeText(ft.text, 0, 0);
+      this.ctx.fillText(ft.text, 0, 0);
+
+      this.ctx.restore();
     }
 
     // Render wind indicator arrow (top right)
     if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING') {
       this.renderWindArrow();
+    }
+
+    // Render HUD health bars
+    if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING') {
+      this.renderHUDHealthBars();
+    }
+
+    // Render turn banner
+    if (this.turnBannerAlpha > 0) {
+      this.renderTurnBanner();
     }
 
     // Render turn timer (during human turns)
@@ -610,6 +875,10 @@ export class Game {
     // Render game over
     if (this.state === 'GAME_OVER') {
       this.renderGameOver();
+      this.renderConfetti();
+      this.renderFireworks();
+      this.updateConfetti(0.016); // Continue animating confetti
+      this.updateFireworks(0.016); // Continue animating fireworks
     }
 
     // Render pause menu
@@ -622,53 +891,110 @@ export class Game {
       this.renderSettings();
     }
 
+    // Render screen flash overlay
+    if (this.screenFlashIntensity > 0) {
+      this.ctx.fillStyle = this.screenFlashColor;
+      this.ctx.globalAlpha = this.screenFlashIntensity;
+      this.ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+      this.ctx.globalAlpha = 1;
+    }
+
     this.ctx.restore();
   }
 
   private renderMenu(): void {
-    // Background
-    this.ctx.fillStyle = '#1a1a2e';
+    // Background with gradient
+    const bgGradient = this.ctx.createLinearGradient(0, 0, 0, BASE_HEIGHT);
+    bgGradient.addColorStop(0, '#1a1a2e');
+    bgGradient.addColorStop(0.5, '#16213e');
+    bgGradient.addColorStop(1, '#0f0f1a');
+    this.ctx.fillStyle = bgGradient;
     this.ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
 
-    // Title
+    // Animated background particles
+    this.ctx.fillStyle = 'rgba(255, 107, 107, 0.1)';
+    for (let i = 0; i < 20; i++) {
+      const x = (Math.sin(this.menuTitlePulse + i * 0.5) * 0.5 + 0.5) * BASE_WIDTH;
+      const y = ((this.menuTitlePulse * 0.1 + i * 0.1) % 1) * BASE_HEIGHT;
+      this.ctx.beginPath();
+      this.ctx.arc(x, y, 2 + Math.sin(i) * 1, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+
+    // Title with glow and pulse effect
+    const titleScale = 1 + Math.sin(this.menuTitlePulse) * 0.02;
+    const titleGlow = 0.5 + Math.sin(this.menuTitlePulse * 2) * 0.3;
+
+    this.ctx.save();
+    this.ctx.translate(BASE_WIDTH / 2, 120);
+    this.ctx.scale(titleScale, titleScale);
+
+    // Title glow
+    this.ctx.shadowColor = '#ff6b6b';
+    this.ctx.shadowBlur = 20 * titleGlow;
     this.ctx.fillStyle = '#ff6b6b';
     this.ctx.font = 'bold 48px "Courier New"';
     this.ctx.textAlign = 'center';
-    this.ctx.fillText('TANK WARS', BASE_WIDTH / 2, 120);
+    this.ctx.fillText('TANK WARS', 0, 0);
+    this.ctx.shadowBlur = 0;
+    this.ctx.restore();
 
+    // Subtitle
     this.ctx.fillStyle = '#6bcfff';
     this.ctx.font = '24px "Courier New"';
+    this.ctx.textAlign = 'center';
     this.ctx.fillText('Artillery Game', BASE_WIDTH / 2, 160);
 
-    // Menu items
+    // Menu items with slide-in animation
     const menuStartY = 260;
     const itemHeight = 40;
 
     for (let i = 0; i < this.menuItems.length; i++) {
+      const slideProgress = this.menuItemsSlideIn[i] || 0;
+      const slideOffset = (1 - this.easeOutCubic(slideProgress)) * 100;
+      const alpha = slideProgress;
+
       const y = menuStartY + i * itemHeight;
       const isSelected = i === this.selectedMenuItem;
 
+      this.ctx.save();
+      this.ctx.globalAlpha = alpha;
+      this.ctx.translate(slideOffset, 0);
+
       if (isSelected) {
+        // Animated selection indicator
+        const selectorPulse = Math.sin(this.menuTitlePulse * 3) * 3;
         this.ctx.fillStyle = '#ff6b6b';
-        this.ctx.fillText('>', BASE_WIDTH / 2 - 120, y);
+        this.ctx.fillText('>', BASE_WIDTH / 2 - 120 + selectorPulse, y);
+
+        // Selection glow
+        this.ctx.shadowColor = '#fff';
+        this.ctx.shadowBlur = 10;
       }
 
       this.ctx.fillStyle = isSelected ? '#fff' : '#aaa';
       this.ctx.font = `${isSelected ? 'bold ' : ''}18px "Courier New"`;
       this.ctx.fillText(this.menuItems[i].label, BASE_WIDTH / 2, y);
+      this.ctx.shadowBlur = 0;
+
+      this.ctx.restore();
     }
 
-    // Instructions
+    // Instructions with fade in
+    const instructAlpha = Math.min(1, this.menuTitlePulse / 2);
+    this.ctx.globalAlpha = instructAlpha;
     this.ctx.fillStyle = '#666';
     this.ctx.font = '12px "Courier New"';
     this.ctx.fillText('Arrow Keys to Select, Enter to Start', BASE_WIDTH / 2, 440);
     this.ctx.fillText('In-game: Left/Right = Aim, Hold Space = Charge Power, Release = Fire', BASE_WIDTH / 2, 460);
+    this.ctx.globalAlpha = 1;
 
-    // Draw decorative tanks
+    // Draw decorative tanks with slight animation
+    const tankBob = Math.sin(this.menuTitlePulse * 2) * 2;
     this.ctx.fillStyle = '#ff6b6b';
-    this.ctx.fillRect(150, 200, 40, 20);
+    this.ctx.fillRect(150, 200 + tankBob, 40, 20);
     this.ctx.fillStyle = '#4ECB71';
-    this.ctx.fillRect(610, 200, 40, 20);
+    this.ctx.fillRect(610, 200 - tankBob, 40, 20);
   }
 
   private renderTurnTimer(): void {
@@ -723,29 +1049,52 @@ export class Game {
   }
 
   private renderGameOver(): void {
-    // Overlay
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    // Overlay with fade in
+    const overlayAlpha = this.easeOutCubic(this.gameOverSlideIn) * 0.85;
+    this.ctx.fillStyle = `rgba(0, 0, 0, ${overlayAlpha})`;
     this.ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
 
     this.ctx.textAlign = 'center';
 
-    // Winner announcement
+    // Winner announcement with scale/glow animation
     let titleY = 80;
+    const titleSlide = this.easeOutElastic(Math.min(1, this.gameOverSlideIn * 1.5));
+    const titleScale = 0.5 + titleSlide * 0.5;
+    const titleGlow = 0.5 + Math.sin(this.menuTitlePulse * 2) * 0.5;
+
+    this.ctx.save();
+    this.ctx.translate(BASE_WIDTH / 2, titleY);
+    this.ctx.scale(titleScale, titleScale);
+    this.ctx.globalAlpha = this.gameOverSlideIn;
+
     if (this.winner) {
       const winnerLabel = this.gameMode === 'single'
         ? (this.winner.playerIndex === 0 ? 'YOU WIN!' : 'CPU WINS!')
         : `PLAYER ${this.winner.playerIndex + 1} WINS!`;
 
+      // Glow effect
+      this.ctx.shadowColor = this.winner.color;
+      this.ctx.shadowBlur = 20 * titleGlow;
       this.ctx.fillStyle = this.winner.color;
       this.ctx.font = 'bold 36px "Courier New"';
-      this.ctx.fillText(winnerLabel, BASE_WIDTH / 2, titleY);
+      this.ctx.fillText(winnerLabel, 0, 0);
+      this.ctx.shadowBlur = 0;
     } else {
       this.ctx.fillStyle = '#fff';
       this.ctx.font = 'bold 36px "Courier New"';
-      this.ctx.fillText('DRAW!', BASE_WIDTH / 2, titleY);
+      this.ctx.fillText('DRAW!', 0, 0);
     }
+    this.ctx.restore();
 
-    // Statistics header
+    // Statistics header with slide in
+    const statsSlideDelay = 0.3;
+    const statsProgress = Math.max(0, (this.gameOverSlideIn - statsSlideDelay) / (1 - statsSlideDelay));
+    const statsSlide = this.easeOutCubic(statsProgress);
+
+    this.ctx.save();
+    this.ctx.globalAlpha = statsProgress;
+    this.ctx.translate((1 - statsSlide) * -50, 0);
+
     this.ctx.fillStyle = '#6bcfff';
     this.ctx.font = 'bold 20px "Courier New"';
     this.ctx.fillText('MATCH STATISTICS', BASE_WIDTH / 2, titleY + 60);
@@ -763,7 +1112,7 @@ export class Game {
     this.ctx.fillStyle = this.tanks[1]?.color || '#4ECB71';
     this.ctx.fillText(this.gameMode === 'single' ? 'CPU' : 'PLAYER 2', p2X, statsY);
 
-    // Stats rows
+    // Stats rows with staggered slide in
     this.ctx.font = '14px "Courier New"';
     const stats = [
       { label: 'Shots Fired', key: 'shotsFired' as keyof PlayerStats },
@@ -773,7 +1122,17 @@ export class Game {
     ];
 
     let rowY = statsY + 30;
-    for (const stat of stats) {
+    for (let i = 0; i < stats.length; i++) {
+      const stat = stats[i];
+      const rowDelay = 0.4 + i * 0.1;
+      const rowProgress = Math.max(0, (this.gameOverSlideIn - rowDelay) / (1 - rowDelay));
+      const rowAlpha = this.easeOutCubic(rowProgress);
+      const rowOffset = (1 - rowAlpha) * 30;
+
+      this.ctx.save();
+      this.ctx.globalAlpha = rowAlpha;
+      this.ctx.translate(0, rowOffset);
+
       // Label
       this.ctx.fillStyle = '#aaa';
       this.ctx.fillText(stat.label, BASE_WIDTH / 2, rowY);
@@ -793,13 +1152,20 @@ export class Game {
         this.ctx.fillText(String(this.playerStats[0]?.[stat.key] ?? 0), p1X, rowY);
         this.ctx.fillText(String(this.playerStats[1]?.[stat.key] ?? 0), p2X, rowY);
       }
+
+      this.ctx.restore();
       rowY += 25;
     }
 
-    // Continue prompt
-    this.ctx.fillStyle = '#666';
+    this.ctx.restore();
+
+    // Continue prompt with pulsing
+    const promptAlpha = 0.5 + Math.sin(this.menuTitlePulse * 2) * 0.3;
+    this.ctx.globalAlpha = this.gameOverSlideIn * promptAlpha;
+    this.ctx.fillStyle = '#fff';
     this.ctx.font = '16px "Courier New"';
     this.ctx.fillText('Press Enter to Continue', BASE_WIDTH / 2, BASE_HEIGHT - 50);
+    this.ctx.globalAlpha = 1;
   }
 
   private renderPauseMenu(): void {
@@ -936,12 +1302,14 @@ export class Game {
     // Create tanks (always 2 for now)
     const numPlayers = 2;
     this.playerStats = [];
+    this.hudHealthAnimations = [];
     for (let i = 0; i < numPlayers; i++) {
       const pos = this.terrain.getSpawnPosition(i, numPlayers);
       const facingRight = i < numPlayers / 2;
       const tank = new Tank(pos.x, pos.y, PLAYER_COLORS[i], i, facingRight);
       this.tanks.push(tank);
       this.playerStats.push({ shotsFired: 0, hits: 0, damageDealt: 0 });
+      this.hudHealthAnimations.push({ current: 100, target: 100 });
     }
 
     // Set initial wind
@@ -956,6 +1324,10 @@ export class Game {
     this.updateUI();
     this.state = 'PLAYING';
     this.fireButton.disabled = false;
+
+    // Show initial turn banner
+    const turnText = this.gameMode === 'single' ? 'YOUR TURN' : 'PLAYER 1 TURN';
+    this.showTurnBanner(turnText);
 
     // Start background music
     soundManager.startMusic();
@@ -988,6 +1360,14 @@ export class Game {
       this.wind,
       tank
     );
+
+    // Trigger muzzle flash and recoil
+    tank.fire();
+
+    // Screen shake proportional to power (more juice!)
+    const powerRatio = parseInt(this.powerSlider.value) / 100;
+    this.triggerScreenShake(4 + powerRatio * 8); // 4-12 intensity based on power
+    this.triggerScreenFlash('#FFF', 0.15 + powerRatio * 0.1); // Brief white flash
 
     this.state = 'FIRING';
     this.fireButton.disabled = true;
@@ -1041,6 +1421,14 @@ export class Game {
       tank
     );
 
+    // Trigger muzzle flash and recoil
+    tank.fire();
+
+    // Screen shake proportional to power (more juice!)
+    const powerRatio = this.aiShot.power / 100;
+    this.triggerScreenShake(4 + powerRatio * 8);
+    this.triggerScreenFlash('#FFF', 0.15 + powerRatio * 0.1);
+
     this.aiShot = null;
     this.state = 'FIRING';
     soundManager.playShoot();
@@ -1057,6 +1445,12 @@ export class Game {
       this.winner = aliveTanks.length === 1 ? aliveTanks[0] : null;
       this.state = 'GAME_OVER';
       this.fireButton.disabled = true;
+
+      // Spawn victory confetti and fireworks
+      if (this.winner) {
+        this.spawnConfetti();
+        this.spawnInitialFireworks();
+      }
 
       // Play victory/defeat sound
       const isVictory = this.gameMode === 'single'
@@ -1095,6 +1489,15 @@ export class Game {
     const tank = this.tanks[this.currentPlayerIndex];
     this.angleSlider.value = tank.angle.toString();
     this.angleValue.textContent = tank.angle.toString();
+
+    // Show turn banner
+    let turnText: string;
+    if (this.gameMode === 'single') {
+      turnText = this.currentPlayerIndex === 0 ? 'YOUR TURN' : 'CPU TURN';
+    } else {
+      turnText = `PLAYER ${this.currentPlayerIndex + 1} TURN`;
+    }
+    this.showTurnBanner(turnText);
 
     this.updateUI();
   }
@@ -1169,6 +1572,200 @@ export class Game {
     this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
   }
 
+  private triggerScreenFlash(color: string, intensity: number): void {
+    this.screenFlashColor = color;
+    this.screenFlashIntensity = Math.max(this.screenFlashIntensity, intensity);
+  }
+
+  private triggerHitstop(duration: number): void {
+    this.hitstopTimer = Math.max(this.hitstopTimer, duration);
+  }
+
+  private spawnConfetti(): void {
+    const colors = ['#FF6B6B', '#4ECB71', '#FFD93D', '#4D96FF', '#FF6FB5', '#FFF'];
+    for (let i = 0; i < 100; i++) {
+      this.confetti.push({
+        x: Math.random() * BASE_WIDTH,
+        y: -20 - Math.random() * 100,
+        vx: (Math.random() - 0.5) * 100,
+        vy: 50 + Math.random() * 100,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 10,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 4 + Math.random() * 6,
+        life: 3 + Math.random() * 2,
+      });
+    }
+  }
+
+  private updateConfetti(deltaTime: number): void {
+    for (const particle of this.confetti) {
+      particle.x += particle.vx * deltaTime;
+      particle.y += particle.vy * deltaTime;
+      particle.vy += 80 * deltaTime; // Gravity
+      particle.vx *= 0.99; // Air resistance
+      particle.rotation += particle.rotationSpeed * deltaTime;
+      particle.life -= deltaTime;
+    }
+    this.confetti = this.confetti.filter(p => p.life > 0 && p.y < BASE_HEIGHT + 50);
+  }
+
+  private renderConfetti(): void {
+    for (const particle of this.confetti) {
+      const alpha = Math.min(1, particle.life);
+      this.ctx.save();
+      this.ctx.translate(particle.x, particle.y);
+      this.ctx.rotate(particle.rotation);
+      this.ctx.globalAlpha = alpha;
+      this.ctx.fillStyle = particle.color;
+      this.ctx.fillRect(-particle.size / 2, -particle.size / 4, particle.size, particle.size / 2);
+      this.ctx.restore();
+    }
+  }
+
+  private spawnInitialFireworks(): void {
+    // Spawn several fireworks immediately
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => {
+        if (this.state === 'GAME_OVER') {
+          this.spawnFirework();
+        }
+      }, i * 300);
+    }
+    // Start continuous firework spawning
+    this.fireworkSpawnTimer = 0.5;
+  }
+
+  private spawnFirework(): void {
+    const colors = ['#FF6B6B', '#4ECB71', '#FFD93D', '#4D96FF', '#FF6FB5', '#FFF', '#FF9500'];
+    this.fireworks.push({
+      x: 50 + Math.random() * (BASE_WIDTH - 100),
+      y: BASE_HEIGHT,
+      vy: -200 - Math.random() * 100,
+      targetY: 80 + Math.random() * 150,
+      exploded: false,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      sparks: [],
+    });
+  }
+
+  private updateFireworks(deltaTime: number): void {
+    // Spawn new fireworks periodically during game over
+    if (this.state === 'GAME_OVER' && this.winner) {
+      this.fireworkSpawnTimer -= deltaTime;
+      if (this.fireworkSpawnTimer <= 0) {
+        this.fireworkSpawnTimer = 0.8 + Math.random() * 0.5;
+        this.spawnFirework();
+      }
+    }
+
+    for (const firework of this.fireworks) {
+      if (!firework.exploded) {
+        // Move firework upward
+        firework.y += firework.vy * deltaTime;
+        firework.vy += 100 * deltaTime; // Gravity slows it down
+
+        // Explode when reaching target
+        if (firework.y <= firework.targetY || firework.vy >= 0) {
+          firework.exploded = true;
+
+          // Create explosion sparks
+          const sparkCount = 40 + Math.floor(Math.random() * 20);
+          for (let i = 0; i < sparkCount; i++) {
+            const angle = (i / sparkCount) * Math.PI * 2;
+            const speed = 80 + Math.random() * 100;
+            const colorVariation = Math.random() > 0.3 ? firework.color : '#FFF';
+            firework.sparks.push({
+              x: firework.x,
+              y: firework.y,
+              vx: Math.cos(angle) * speed * (0.5 + Math.random() * 0.5),
+              vy: Math.sin(angle) * speed * (0.5 + Math.random() * 0.5),
+              life: 1.0 + Math.random() * 0.5,
+              color: colorVariation,
+              size: 2 + Math.random() * 2,
+              trail: [],
+            });
+          }
+        }
+      } else {
+        // Update sparks
+        for (const spark of firework.sparks) {
+          // Store trail
+          spark.trail.push({ x: spark.x, y: spark.y });
+          if (spark.trail.length > 5) {
+            spark.trail.shift();
+          }
+
+          spark.x += spark.vx * deltaTime;
+          spark.y += spark.vy * deltaTime;
+          spark.vy += 80 * deltaTime; // Gravity
+          spark.vx *= 0.98; // Air resistance
+          spark.life -= deltaTime;
+          spark.size *= 0.995;
+        }
+        firework.sparks = firework.sparks.filter(s => s.life > 0);
+      }
+    }
+
+    // Remove completed fireworks
+    this.fireworks = this.fireworks.filter(f => !f.exploded || f.sparks.length > 0);
+  }
+
+  private renderFireworks(): void {
+    for (const firework of this.fireworks) {
+      if (!firework.exploded) {
+        // Draw rising firework with trail
+        this.ctx.fillStyle = firework.color;
+        this.ctx.beginPath();
+        this.ctx.arc(firework.x, firework.y, 3, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        // Trail
+        this.ctx.strokeStyle = firework.color;
+        this.ctx.lineWidth = 2;
+        this.ctx.globalAlpha = 0.5;
+        this.ctx.beginPath();
+        this.ctx.moveTo(firework.x, firework.y);
+        this.ctx.lineTo(firework.x, firework.y + 30);
+        this.ctx.stroke();
+        this.ctx.globalAlpha = 1;
+      } else {
+        // Draw sparks with trails
+        for (const spark of firework.sparks) {
+          const alpha = Math.min(1, spark.life);
+
+          // Draw trail
+          if (spark.trail.length > 1) {
+            for (let i = 1; i < spark.trail.length; i++) {
+              const trailAlpha = alpha * (i / spark.trail.length) * 0.5;
+              this.ctx.strokeStyle = spark.color;
+              this.ctx.globalAlpha = trailAlpha;
+              this.ctx.lineWidth = spark.size * (i / spark.trail.length);
+              this.ctx.beginPath();
+              this.ctx.moveTo(spark.trail[i - 1].x, spark.trail[i - 1].y);
+              this.ctx.lineTo(spark.trail[i].x, spark.trail[i].y);
+              this.ctx.stroke();
+            }
+          }
+
+          // Draw spark head with glow
+          this.ctx.globalAlpha = alpha * 0.3;
+          this.ctx.fillStyle = spark.color;
+          this.ctx.beginPath();
+          this.ctx.arc(spark.x, spark.y, spark.size * 2, 0, Math.PI * 2);
+          this.ctx.fill();
+
+          this.ctx.globalAlpha = alpha;
+          this.ctx.fillStyle = spark.color;
+          this.ctx.beginPath();
+          this.ctx.arc(spark.x, spark.y, spark.size, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+      }
+    }
+    this.ctx.globalAlpha = 1;
+  }
+
   private updateScreenShake(deltaTime: number): void {
     if (this.shakeIntensity > 0) {
       // Random offset based on intensity
@@ -1183,5 +1780,363 @@ export class Game {
         this.shakeOffsetY = 0;
       }
     }
+  }
+
+  private calculateTrajectory(): void {
+    this.trajectoryPoints = [];
+
+    // Only show trajectory during human player turn (not AI)
+    if (this.state !== 'PLAYING' || this.isAITurn()) {
+      return;
+    }
+
+    const tank = this.tanks[this.currentPlayerIndex];
+    if (!tank || !tank.isAlive) return;
+
+    const angle = parseInt(this.angleSlider.value);
+    const power = (parseInt(this.powerSlider.value) / 100) * MAX_POWER;
+    const barrelEnd = tank.getBarrelEnd();
+
+    // Simulate projectile physics to generate trajectory points
+    const angleRad = (angle * Math.PI) / 180;
+    let x = barrelEnd.x;
+    let y = barrelEnd.y;
+    let vx = Math.cos(angleRad) * power + this.wind * 0.5;
+    let vy = -Math.sin(angleRad) * power;
+
+    const dt = 0.016; // Simulate at 60 FPS
+    const maxPoints = 80; // Limit trajectory length
+    const gravity = 500; // Same as GRAVITY constant
+
+    for (let i = 0; i < maxPoints; i++) {
+      this.trajectoryPoints.push({ x, y });
+
+      // Apply physics (same as Projectile.ts)
+      vx += this.wind * dt * 0.5;
+      vy += gravity * dt;
+      x += vx * dt;
+      y += vy * dt;
+
+      // Stop if we hit terrain or go out of bounds
+      const terrainHeight = this.terrain.getHeightAt(x);
+      const terrainY = BASE_HEIGHT - terrainHeight;
+      if (y >= terrainY || x < -50 || x > BASE_WIDTH + 50 || y > BASE_HEIGHT + 50) {
+        this.trajectoryPoints.push({ x, y: Math.min(y, terrainY) });
+        break;
+      }
+    }
+  }
+
+  private renderTrajectory(): void {
+    if (this.trajectoryPoints.length < 2) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+
+    // Draw dashed trajectory line with fading opacity
+    const totalPoints = this.trajectoryPoints.length;
+    const dashLength = 8;
+    const gapLength = 6;
+    let dashOn = true;
+    let dashProgress = 0;
+
+    for (let i = 1; i < totalPoints; i++) {
+      const prev = this.trajectoryPoints[i - 1];
+      const curr = this.trajectoryPoints[i];
+
+      // Calculate opacity (fades along trajectory)
+      const alpha = 0.8 * (1 - i / totalPoints);
+
+      // Calculate segment properties
+      const dx = curr.x - prev.x;
+      const dy = curr.y - prev.y;
+      const segmentLength = Math.sqrt(dx * dx + dy * dy);
+      const ux = dx / segmentLength;
+      const uy = dy / segmentLength;
+
+      let remaining = segmentLength;
+      let startX = prev.x;
+      let startY = prev.y;
+
+      while (remaining > 0) {
+        const currentLength = dashOn ? dashLength : gapLength;
+        const drawLength = Math.min(remaining, currentLength - dashProgress);
+
+        if (dashOn) {
+          ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(startX + ux * drawLength, startY + uy * drawLength);
+          ctx.stroke();
+        }
+
+        startX += ux * drawLength;
+        startY += uy * drawLength;
+        dashProgress += drawLength;
+        remaining -= drawLength;
+
+        if (dashProgress >= (dashOn ? dashLength : gapLength)) {
+          dashProgress = 0;
+          dashOn = !dashOn;
+        }
+      }
+    }
+
+    // Draw dots at regular intervals
+    for (let i = 0; i < totalPoints; i += 5) {
+      const point = this.trajectoryPoints[i];
+      const alpha = 0.6 * (1 - i / totalPoints);
+      const size = 3 * (1 - i / totalPoints * 0.5);
+
+      ctx.fillStyle = `rgba(255, 220, 100, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw predicted landing point
+    if (totalPoints > 0) {
+      const landing = this.trajectoryPoints[totalPoints - 1];
+      ctx.strokeStyle = 'rgba(255, 100, 100, 0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(landing.x, landing.y, 10, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Crosshair at landing point
+      ctx.beginPath();
+      ctx.moveTo(landing.x - 15, landing.y);
+      ctx.lineTo(landing.x + 15, landing.y);
+      ctx.moveTo(landing.x, landing.y - 15);
+      ctx.lineTo(landing.x, landing.y + 15);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  private renderHUDHealthBars(): void {
+    const ctx = this.ctx;
+    const barWidth = 150;
+    const barHeight = 18;
+    const padding = 15;
+
+    for (let i = 0; i < this.tanks.length; i++) {
+      const tank = this.tanks[i];
+      const isLeft = i === 0;
+      const barX = isLeft ? padding : BASE_WIDTH - padding - barWidth;
+      const barY = 50;
+
+      // Update animated health value
+      if (this.hudHealthAnimations[i]) {
+        const anim = this.hudHealthAnimations[i];
+        anim.target = tank.health;
+        const diff = anim.target - anim.current;
+        anim.current += diff * 0.1; // Smooth interpolation
+        if (Math.abs(diff) < 0.1) anim.current = anim.target;
+      }
+
+      const animatedHealth = this.hudHealthAnimations[i]?.current ?? tank.health;
+      const healthPercent = animatedHealth / 100;
+
+      // Background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.beginPath();
+      ctx.roundRect(barX - 5, barY - 25, barWidth + 10, barHeight + 35, 5);
+      ctx.fill();
+
+      // Player label
+      const playerLabel = this.gameMode === 'single'
+        ? (i === 0 ? 'YOU' : 'CPU')
+        : `PLAYER ${i + 1}`;
+      ctx.fillStyle = tank.color;
+      ctx.font = 'bold 12px "Courier New"';
+      ctx.textAlign = isLeft ? 'left' : 'right';
+      ctx.fillText(playerLabel, isLeft ? barX : barX + barWidth, barY - 8);
+
+      // Color indicator dot
+      ctx.fillStyle = tank.color;
+      ctx.beginPath();
+      ctx.arc(isLeft ? barX + barWidth - 8 : barX + 8, barY - 12, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Health bar background
+      ctx.fillStyle = '#333';
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barWidth, barHeight, 3);
+      ctx.fill();
+
+      // Health bar fill with gradient (green > yellow > red)
+      let healthColor: string;
+      if (healthPercent > 0.5) {
+        healthColor = '#4ECB71';
+      } else if (healthPercent > 0.25) {
+        healthColor = '#FFD93D';
+      } else {
+        healthColor = '#FF6B6B';
+      }
+
+      const gradient = ctx.createLinearGradient(barX, barY, barX, barY + barHeight);
+      gradient.addColorStop(0, this.lightenColor(healthColor, 30));
+      gradient.addColorStop(0.5, healthColor);
+      gradient.addColorStop(1, this.darkenColor(healthColor, 30));
+
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barWidth * healthPercent, barHeight, 3);
+      ctx.fill();
+
+      // Health bar border
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barWidth, barHeight, 3);
+      ctx.stroke();
+
+      // Numeric health value
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 11px "Courier New"';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(animatedHealth)}`, barX + barWidth / 2, barY + barHeight / 2 + 4);
+    }
+  }
+
+  private renderTurnBanner(): void {
+    if (this.turnBannerAlpha <= 0) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+
+    // Banner background
+    const bannerWidth = 200;
+    const bannerHeight = 40;
+    const bannerX = BASE_WIDTH / 2 - bannerWidth / 2;
+    const bannerY = 90;
+
+    ctx.globalAlpha = this.turnBannerAlpha;
+
+    // Background with glow
+    ctx.shadowColor = this.tanks[this.currentPlayerIndex]?.color || '#fff';
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.beginPath();
+    ctx.roundRect(bannerX, bannerY, bannerWidth, bannerHeight, 8);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Border
+    ctx.strokeStyle = this.tanks[this.currentPlayerIndex]?.color || '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(bannerX, bannerY, bannerWidth, bannerHeight, 8);
+    ctx.stroke();
+
+    // Text
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.turnBannerText, BASE_WIDTH / 2, bannerY + bannerHeight / 2 + 6);
+
+    ctx.restore();
+  }
+
+  private renderPowerMeter(): void {
+    if (!this.isChargingPower || this.state !== 'PLAYING') return;
+
+    const ctx = this.ctx;
+    const tank = this.tanks[this.currentPlayerIndex];
+    if (!tank || !tank.isAlive) return;
+
+    const power = parseInt(this.powerSlider.value);
+    const meterRadius = 35;
+    const meterX = tank.x;
+    const meterY = tank.y - 60;
+
+    ctx.save();
+
+    // Outer glow (pulsing)
+    const pulse = 0.7 + Math.sin(Date.now() / 100) * 0.3;
+    ctx.shadowColor = power > 70 ? '#ff4444' : power > 40 ? '#ffaa00' : '#44ff44';
+    ctx.shadowBlur = 15 * pulse;
+
+    // Background arc
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(meterX, meterY, meterRadius, Math.PI, 0, false);
+    ctx.stroke();
+
+    // Power arc with color gradient
+    let powerColor: string;
+    if (power > 70) {
+      powerColor = '#ff4444';
+    } else if (power > 40) {
+      powerColor = '#ffaa00';
+    } else {
+      powerColor = '#44ff44';
+    }
+
+    ctx.strokeStyle = powerColor;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    const powerAngle = Math.PI + (power / 100) * Math.PI;
+    ctx.arc(meterX, meterY, meterRadius, Math.PI, powerAngle, false);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Percentage text
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${power}%`, meterX, meterY + 5);
+
+    // "POWER" label
+    ctx.fillStyle = '#aaa';
+    ctx.font = '10px "Courier New"';
+    ctx.fillText('POWER', meterX, meterY + 18);
+
+    ctx.restore();
+  }
+
+  // Helper to lighten a hex color
+  private lightenColor(color: string, amount: number): string {
+    // Handle hex colors
+    if (color.startsWith('#')) {
+      const num = parseInt(color.replace('#', ''), 16);
+      const r = Math.min(255, (num >> 16) + amount);
+      const g = Math.min(255, ((num >> 8) & 0x00FF) + amount);
+      const b = Math.min(255, (num & 0x0000FF) + amount);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+    return color;
+  }
+
+  // Helper to darken a hex color
+  private darkenColor(color: string, amount: number): string {
+    if (color.startsWith('#')) {
+      const num = parseInt(color.replace('#', ''), 16);
+      const r = Math.max(0, (num >> 16) - amount);
+      const g = Math.max(0, ((num >> 8) & 0x00FF) - amount);
+      const b = Math.max(0, (num & 0x0000FF) - amount);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+    return color;
+  }
+
+  private showTurnBanner(text: string): void {
+    this.turnBannerText = text;
+    this.turnBannerAlpha = 1;
+    this.turnBannerTimer = 2.0; // Display for 2 seconds
+  }
+
+  // Easing function for smooth animations
+  private easeOutCubic(t: number): number {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  private easeOutElastic(t: number): number {
+    const c4 = (2 * Math.PI) / 3;
+    return t === 0 ? 0 : t === 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
   }
 }

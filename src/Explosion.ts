@@ -13,6 +13,39 @@ interface Particle {
   size: number;
 }
 
+interface DebrisChunk {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rotation: number;
+  rotationSpeed: number;
+  life: number;
+  size: number;
+  color: string;
+}
+
+interface EmberParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  trail: { x: number; y: number }[];
+  color: string;
+}
+
+interface SmokeWaveParticle {
+  x: number;
+  y: number;
+  vx: number;
+  life: number;
+  maxLife: number;
+  size: number;
+}
+
 export class Explosion {
   x: number;
   y: number;
@@ -21,10 +54,20 @@ export class Explosion {
   alpha: number;
   active: boolean;
   particles: Particle[];
+  debrisChunks: DebrisChunk[];
 
   // Shockwave
   shockwaveRadius: number;
   shockwaveAlpha: number;
+
+  // Enhanced effects
+  emberParticles: EmberParticle[];
+  smokeWaveParticles: SmokeWaveParticle[];
+  secondaryExplosionTimer: number;
+  secondaryExplosionActive: boolean;
+  secondaryRadius: number;
+  secondaryAlpha: number;
+  brightnessFlash: number;
 
   constructor(x: number, y: number) {
     this.x = x;
@@ -86,6 +129,67 @@ export class Explosion {
         size: 8 + Math.random() * 8,
       });
     }
+
+    // Create debris chunks (flying terrain pieces)
+    this.debrisChunks = [];
+    const dirtColors = ['#8B4513', '#A0522D', '#6B4423', '#5C4033', '#704214'];
+    for (let i = 0; i < 10; i++) {
+      const angle = Math.random() * Math.PI - Math.PI / 2; // Upward arc (-180 to 0)
+      const speed = 80 + Math.random() * 120;
+      this.debrisChunks.push({
+        x: x + (Math.random() - 0.5) * EXPLOSION_RADIUS * 0.5,
+        y: y,
+        vx: Math.cos(angle) * speed * (Math.random() > 0.5 ? 1 : -1),
+        vy: Math.sin(angle) * speed - 80, // Mostly upward
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 15,
+        life: 0.8 + Math.random() * 0.6,
+        size: 4 + Math.random() * 6,
+        color: dirtColors[Math.floor(Math.random() * dirtColors.length)],
+      });
+    }
+
+    // Create ember particles with trails
+    this.emberParticles = [];
+    const emberColors = ['#FF6B00', '#FF8C00', '#FFA500', '#FFD700', '#FF4500'];
+    for (let i = 0; i < 20; i++) {
+      const angle = -Math.PI * 0.8 + Math.random() * Math.PI * 0.6; // Mostly upward
+      const speed = 80 + Math.random() * 150;
+      this.emberParticles.push({
+        x: x + (Math.random() - 0.5) * 20,
+        y: y,
+        vx: Math.cos(angle) * speed * (Math.random() > 0.5 ? 1 : -1),
+        vy: Math.sin(angle) * speed - 100,
+        life: 0.8 + Math.random() * 1.2,
+        maxLife: 2.0,
+        size: 2 + Math.random() * 3,
+        trail: [],
+        color: emberColors[Math.floor(Math.random() * emberColors.length)],
+      });
+    }
+
+    // Create ground-level smoke wave particles
+    this.smokeWaveParticles = [];
+    for (let i = 0; i < 12; i++) {
+      const direction = i < 6 ? -1 : 1; // Half go left, half go right
+      this.smokeWaveParticles.push({
+        x: x,
+        y: y,
+        vx: direction * (60 + Math.random() * 80),
+        life: 0.8 + Math.random() * 0.5,
+        maxLife: 1.3,
+        size: 15 + Math.random() * 15,
+      });
+    }
+
+    // Secondary explosion setup
+    this.secondaryExplosionTimer = 0.08 + Math.random() * 0.05;
+    this.secondaryExplosionActive = false;
+    this.secondaryRadius = 0;
+    this.secondaryAlpha = 0;
+
+    // Initial brightness flash
+    this.brightnessFlash = 0.8;
   }
 
   applyDamage(tanks: Tank[], terrain: Terrain, _shooter: Tank): void {
@@ -127,6 +231,31 @@ export class Explosion {
     this.shockwaveRadius += deltaTime * 300;
     this.shockwaveAlpha -= deltaTime * 2.5;
 
+    // Update brightness flash
+    if (this.brightnessFlash > 0) {
+      this.brightnessFlash -= deltaTime * 4;
+      if (this.brightnessFlash < 0) this.brightnessFlash = 0;
+    }
+
+    // Handle secondary explosion with delay
+    if (this.secondaryExplosionTimer > 0) {
+      this.secondaryExplosionTimer -= deltaTime;
+      if (this.secondaryExplosionTimer <= 0) {
+        this.secondaryExplosionActive = true;
+        this.secondaryRadius = 5;
+        this.secondaryAlpha = 0.9;
+      }
+    }
+
+    // Update secondary explosion
+    if (this.secondaryExplosionActive) {
+      this.secondaryRadius += deltaTime * 180;
+      this.secondaryAlpha -= deltaTime * 2.5;
+      if (this.secondaryAlpha <= 0) {
+        this.secondaryExplosionActive = false;
+      }
+    }
+
     // Update particles
     for (const particle of this.particles) {
       particle.x += particle.vx * deltaTime;
@@ -150,13 +279,78 @@ export class Explosion {
     // Remove dead particles
     this.particles = this.particles.filter(p => p.life > 0);
 
-    if (this.alpha <= 0 && this.shockwaveAlpha <= 0 && this.particles.length === 0) {
+    // Update debris chunks
+    for (const debris of this.debrisChunks) {
+      debris.x += debris.vx * deltaTime;
+      debris.y += debris.vy * deltaTime;
+      debris.vy += 200 * deltaTime; // Gravity
+      debris.rotation += debris.rotationSpeed * deltaTime;
+      debris.life -= deltaTime;
+    }
+    this.debrisChunks = this.debrisChunks.filter(d => d.life > 0);
+
+    // Update ember particles with trails
+    for (const ember of this.emberParticles) {
+      // Store trail position
+      ember.trail.push({ x: ember.x, y: ember.y });
+      if (ember.trail.length > 8) {
+        ember.trail.shift();
+      }
+
+      ember.x += ember.vx * deltaTime;
+      ember.y += ember.vy * deltaTime;
+      ember.vy += 120 * deltaTime; // Gravity
+      ember.vx *= 0.99; // Air resistance
+      ember.life -= deltaTime;
+    }
+    this.emberParticles = this.emberParticles.filter(e => e.life > 0);
+
+    // Update smoke wave particles
+    for (const smoke of this.smokeWaveParticles) {
+      smoke.x += smoke.vx * deltaTime;
+      smoke.vx *= 0.95; // Decelerate
+      smoke.size += deltaTime * 20; // Expand
+      smoke.life -= deltaTime;
+    }
+    this.smokeWaveParticles = this.smokeWaveParticles.filter(s => s.life > 0);
+
+    // Check if explosion is complete
+    const hasActiveParticles = this.particles.length > 0 ||
+      this.debrisChunks.length > 0 ||
+      this.emberParticles.length > 0 ||
+      this.smokeWaveParticles.length > 0;
+
+    if (this.alpha <= 0 && this.shockwaveAlpha <= 0 && !this.secondaryExplosionActive && !hasActiveParticles) {
       this.active = false;
     }
   }
 
   render(ctx: CanvasRenderingContext2D): void {
     if (!this.active) return;
+
+    // Draw brightness flash (screen-wide glow effect)
+    if (this.brightnessFlash > 0) {
+      const flashGradient = ctx.createRadialGradient(
+        this.x, this.y, 0,
+        this.x, this.y, 200
+      );
+      flashGradient.addColorStop(0, `rgba(255, 255, 200, ${this.brightnessFlash * 0.5})`);
+      flashGradient.addColorStop(0.5, `rgba(255, 200, 100, ${this.brightnessFlash * 0.2})`);
+      flashGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
+      ctx.fillStyle = flashGradient;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, 200, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw ground-level smoke wave
+    for (const smoke of this.smokeWaveParticles) {
+      const alpha = (smoke.life / smoke.maxLife) * 0.4;
+      ctx.fillStyle = `rgba(80, 70, 60, ${alpha})`;
+      ctx.beginPath();
+      ctx.ellipse(smoke.x, smoke.y, smoke.size, smoke.size * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // Draw shockwave ring
     if (this.shockwaveAlpha > 0) {
@@ -188,6 +382,23 @@ export class Explosion {
       ctx.fillStyle = gradient;
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw secondary explosion (delayed "pop")
+    if (this.secondaryExplosionActive && this.secondaryAlpha > 0) {
+      const secGradient = ctx.createRadialGradient(
+        this.x, this.y - 10, 0,
+        this.x, this.y - 10, this.secondaryRadius
+      );
+      secGradient.addColorStop(0, `rgba(255, 255, 255, ${this.secondaryAlpha})`);
+      secGradient.addColorStop(0.3, `rgba(255, 200, 100, ${this.secondaryAlpha * 0.8})`);
+      secGradient.addColorStop(0.7, `rgba(255, 100, 50, ${this.secondaryAlpha * 0.4})`);
+      secGradient.addColorStop(1, 'rgba(200, 50, 0, 0)');
+
+      ctx.fillStyle = secGradient;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y - 10, this.secondaryRadius, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -227,5 +438,72 @@ export class Explosion {
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // Draw debris chunks (rotating dirt pieces)
+    for (const debris of this.debrisChunks) {
+      const alpha = Math.min(1, debris.life * 2);
+      ctx.save();
+      ctx.translate(debris.x, debris.y);
+      ctx.rotate(debris.rotation);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = debris.color;
+
+      // Draw irregular polygon shape
+      ctx.beginPath();
+      const points = 5;
+      for (let i = 0; i < points; i++) {
+        const angle = (i / points) * Math.PI * 2;
+        const radius = debris.size * (0.6 + Math.random() * 0.4);
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (i === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    // Draw ember particles with trails
+    for (const ember of this.emberParticles) {
+      const lifeRatio = ember.life / ember.maxLife;
+      const alpha = Math.min(1, lifeRatio * 1.5);
+
+      // Draw trail
+      if (ember.trail.length > 1) {
+        for (let i = 1; i < ember.trail.length; i++) {
+          const trailAlpha = alpha * (i / ember.trail.length) * 0.6;
+          const trailSize = ember.size * (i / ember.trail.length);
+          ctx.fillStyle = `rgba(255, 150, 50, ${trailAlpha})`;
+          ctx.beginPath();
+          ctx.arc(ember.trail[i].x, ember.trail[i].y, trailSize, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Draw ember head with glow
+      ctx.fillStyle = `rgba(255, 200, 100, ${alpha * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(ember.x, ember.y, ember.size * 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = ember.color;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(ember.x, ember.y, ember.size, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bright core
+      ctx.fillStyle = '#FFF';
+      ctx.beginPath();
+      ctx.arc(ember.x, ember.y, ember.size * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 }
