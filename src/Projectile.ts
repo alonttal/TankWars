@@ -198,12 +198,14 @@ export class Projectile {
     // Check if out of bounds
     if (this.x < -50 || this.x > MAP_WIDTH + 50 || this.y > MAP_HEIGHT + 50) {
       this.active = false;
+      this.trail = []; // Clear trail on deactivation
       return { active: false, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
     }
 
     // Check terrain collision (ground and floating platforms)
     if (terrain.isPointInTerrain(this.x, this.y)) {
       this.active = false;
+      this.trail = []; // Clear trail on hit
       // Spawn impact dust burst
       this.spawnImpactParticles(this.x, this.y);
       return { active: false, hit: true, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
@@ -219,6 +221,7 @@ export class Projectile {
 
       if (distance < 25) { // Hit radius
         this.active = false;
+        this.trail = []; // Clear trail on hit
         return { active: false, hit: true, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
       }
     }
