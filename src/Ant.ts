@@ -790,15 +790,16 @@ export class Ant {
     const shoulderX = baseX + direction * 2;
     const shoulderY = baseY - 10 + breatheOffset;
 
-    // === DRAW BAZOOKA (only on current player's turn) ===
+    // === DRAW BAZOOKA (only for current player) ===
     if (isCurrentPlayer) {
       const bazookaColor = '#4A5D23';
       const bazookaLight = '#5C7A29';
       const bazookaDark = '#2D3A16';
 
       // Draw bazooka tube along angle (thicker tube)
+      // Note: angle already encodes direction (0=right, 90=up, 180=left)
       for (let i = 0; i < bazookaLen; i++) {
-        const px = shoulderX + Math.round(Math.cos(angleRad) * i * direction);
+        const px = shoulderX + Math.round(Math.cos(angleRad) * i);
         const py = shoulderY - Math.round(Math.sin(angleRad) * i);
         // Main tube
         this.drawPixel(ctx, px, py, bazookaColor);
@@ -806,7 +807,7 @@ export class Ant {
         this.drawPixel(ctx, px, py + 1, bazookaDark);
       }
       // Muzzle opening
-      const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * bazookaLen * direction);
+      const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * bazookaLen);
       const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * bazookaLen);
       this.drawPixel(ctx, muzzleX, muzzleY, bazookaDark);
       this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
@@ -927,15 +928,15 @@ export class Ant {
     this.drawPixel(ctx, baseX + direction * 8 - antennaWave, baseY - 19 + breatheOffset, bodyDark);
     this.drawPixel(ctx, baseX + direction * 8 - antennaWave, baseY - 20 + breatheOffset, bodyColor);
 
-    // === ARM holding bazooka (only on current player's turn) ===
+    // === ARM holding bazooka and TARGETING CURSOR (only for current player) ===
     if (isCurrentPlayer) {
-      const armX = shoulderX + Math.round(Math.cos(angleRad) * 4 * direction);
+      const armX = shoulderX + Math.round(Math.cos(angleRad) * 4);
       const armY = shoulderY - Math.round(Math.sin(angleRad) * 4) + 1;
       this.drawPixel(ctx, armX, armY, bodyDark);
       this.drawPixel(ctx, armX, armY + 1, bodyDark);
 
       // === TARGETING CURSOR ===
-      this.renderTargetingCursor(ctx, shoulderX, shoulderY, angleRad, direction, bazookaLen, chargingPower);
+      this.renderTargetingCursor(ctx, shoulderX, shoulderY, angleRad, bazookaLen, chargingPower);
     }
 
     // === CURRENT PLAYER INDICATOR (arrow pointing down) ===
@@ -973,12 +974,12 @@ export class Ant {
     shoulderX: number,
     shoulderY: number,
     angleRad: number,
-    direction: number,
     bazookaLen: number,
     chargingPower: number = 0
   ): void {
     // Convert from pixel grid back to world coordinates
-    const muzzleWorldX = (shoulderX + Math.cos(angleRad) * bazookaLen * direction) * ANT_PIXEL_SCALE;
+    // Note: angle already encodes direction (0=right, 90=up, 180=left)
+    const muzzleWorldX = (shoulderX + Math.cos(angleRad) * bazookaLen) * ANT_PIXEL_SCALE;
     const muzzleWorldY = (shoulderY - Math.sin(angleRad) * bazookaLen) * ANT_PIXEL_SCALE;
 
     // Aiming line parameters
@@ -988,7 +989,7 @@ export class Ant {
     const gapLength = 4;
 
     // Calculate end point of aiming line
-    const endX = muzzleWorldX + Math.cos(angleRad) * lineLength * direction;
+    const endX = muzzleWorldX + Math.cos(angleRad) * lineLength;
     const endY = muzzleWorldY - Math.sin(angleRad) * lineLength;
 
     // Pulsing effect
@@ -1000,7 +1001,7 @@ export class Ant {
     if (chargingPower > 0) {
       const powerRatio = chargingPower / 100;
       const powerLength = lineLength * powerRatio;
-      const powerEndX = muzzleWorldX + Math.cos(angleRad) * powerLength * direction;
+      const powerEndX = muzzleWorldX + Math.cos(angleRad) * powerLength;
       const powerEndY = muzzleWorldY - Math.sin(angleRad) * powerLength;
 
       // Power color: green -> yellow -> red as power increases
@@ -1034,7 +1035,7 @@ export class Ant {
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 12px "Courier New"';
       ctx.textAlign = 'center';
-      const textOffsetX = Math.sin(angleRad) * 15 * direction;
+      const textOffsetX = -Math.sin(angleRad) * 15;
       const textOffsetY = Math.cos(angleRad) * 15;
       ctx.fillText(`${Math.round(chargingPower)}%`, powerEndX + textOffsetX, powerEndY + textOffsetY);
     }

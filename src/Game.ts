@@ -840,7 +840,7 @@ export class Game {
 
     for (let i = 0; i < this.ants.length; i++) {
       const isCurrentAndPlaying = i === this.currentPlayerIndex &&
-        (this.state === 'PLAYING' || this.state === 'AI_THINKING');
+        (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING');
       const chargingPower = (isCurrentAndPlaying && this.isChargingPower)
         ? parseInt(this.powerSlider.value)
         : 0;
