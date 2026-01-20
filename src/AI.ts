@@ -1,5 +1,6 @@
 import { Tank } from './Tank.ts';
 import { GRAVITY, MAX_POWER } from './constants.ts';
+import { WeaponType, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
 
 export type AIDifficulty = 'easy' | 'medium' | 'hard';
 
@@ -21,6 +22,75 @@ export class TankAI {
         this.inaccuracy = 0.05; // 5% error range
         break;
     }
+  }
+
+  // Select weapon based on situation
+  selectWeapon(shooter: Tank, target: Tank): void {
+    // Easy AI always uses standard weapon
+    if (this.difficulty === 'easy') {
+      shooter.selectWeapon('standard');
+      return;
+    }
+
+    const dx = Math.abs(target.x - shooter.x);
+    const dy = target.y - shooter.y;
+    const targetHealth = target.health;
+
+    // Get available weapons (with ammo)
+    const availableWeapons: WeaponType[] = WEAPON_ORDER.filter(w => shooter.hasAmmo(w));
+
+    // Decision logic based on situation
+
+    // 1. If target is low health and we have heavy cannon, finish them
+    if (targetHealth <= 30 && shooter.hasAmmo('heavy')) {
+      shooter.selectWeapon('heavy');
+      return;
+    }
+
+    // 2. If target is far away, use cluster or napalm for area coverage
+    if (dx > 400 && this.difficulty === 'hard') {
+      if (shooter.hasAmmo('cluster')) {
+        shooter.selectWeapon('cluster');
+        return;
+      }
+      if (shooter.hasAmmo('napalm')) {
+        shooter.selectWeapon('napalm');
+        return;
+      }
+    }
+
+    // 3. If target is in a valley (lower than us), napalm is effective
+    if (dy > 30 && shooter.hasAmmo('napalm')) {
+      shooter.selectWeapon('napalm');
+      return;
+    }
+
+    // 4. Medium range - try heavy cannon for extra damage
+    if (dx > 150 && dx < 350 && shooter.hasAmmo('heavy')) {
+      shooter.selectWeapon('heavy');
+      return;
+    }
+
+    // 5. Random chance to use special weapons (more for hard AI)
+    if (this.difficulty === 'hard' && Math.random() < 0.3) {
+      const specialWeapons = availableWeapons.filter(w => w !== 'standard');
+      if (specialWeapons.length > 0) {
+        const randomWeapon = specialWeapons[Math.floor(Math.random() * specialWeapons.length)];
+        shooter.selectWeapon(randomWeapon);
+        return;
+      }
+    }
+
+    // 6. Medium AI occasionally uses special weapons
+    if (this.difficulty === 'medium' && Math.random() < 0.15) {
+      if (shooter.hasAmmo('heavy')) {
+        shooter.selectWeapon('heavy');
+        return;
+      }
+    }
+
+    // Default to standard
+    shooter.selectWeapon('standard');
   }
 
   calculateShot(

@@ -69,11 +69,11 @@ export class Explosion {
   secondaryAlpha: number;
   brightnessFlash: number;
 
-  constructor(x: number, y: number) {
+  constructor(x: number, y: number, explosionRadius: number = EXPLOSION_RADIUS, _baseDamage: number = 50) {
     this.x = x;
     this.y = y;
     this.radius = 5;
-    this.maxRadius = EXPLOSION_RADIUS;
+    this.maxRadius = explosionRadius;
     this.alpha = 1;
     this.active = true;
 
@@ -208,6 +208,45 @@ export class Explosion {
         // Damage falls off with distance
         const damageMultiplier = 1 - (distance / EXPLOSION_DAMAGE_RADIUS);
         const damage = Math.floor(50 * damageMultiplier + 10);
+        tank.takeDamage(damage);
+      }
+    }
+
+    // Update tank positions after terrain deformation
+    for (const tank of tanks) {
+      if (tank.isAlive) {
+        tank.updatePosition(terrain);
+      }
+    }
+  }
+
+  // Apply damage with custom weapon config parameters
+  applyDamageWithConfig(
+    tanks: Tank[],
+    terrain: Terrain,
+    _shooter: Tank,
+    explosionRadius: number,
+    baseDamage: number,
+    craterDepthMultiplier: number
+  ): void {
+    // Damage terrain with weapon-specific crater
+    terrain.createCrater(this.x, this.y, explosionRadius, craterDepthMultiplier);
+
+    // Calculate damage radius based on explosion radius
+    const damageRadius = explosionRadius * 1.15;
+
+    // Damage tanks
+    for (const tank of tanks) {
+      if (!tank.isAlive) continue;
+
+      const dx = tank.x - this.x;
+      const dy = (tank.y - 10) - this.y; // Tank center
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < damageRadius) {
+        // Damage falls off with distance
+        const damageMultiplier = 1 - (distance / damageRadius);
+        const damage = Math.floor(baseDamage * damageMultiplier + baseDamage * 0.2);
         tank.takeDamage(damage);
       }
     }

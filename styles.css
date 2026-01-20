@@ -28,148 +28,147 @@ html, body {
   display: block;
 }
 
-#controls {
+
+
+/* Weapon Selector */
+.weapon-selector {
   position: absolute;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(42, 42, 78, 0.95);
-  padding: 15px 25px;
-  border-radius: 8px;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 500px;
-  max-width: 90%;
+  gap: 8px;
+  background: rgba(42, 42, 78, 0.95);
+  padding: 10px 15px;
+  border-radius: 8px;
   backdrop-filter: blur(5px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 10;
 }
 
-#player-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 16px;
-  font-weight: bold;
-  gap: 15px;
-}
-
-#current-player {
-  color: #ff6b6b;
-}
-
-#wind-info {
-  color: #6bcfff;
-  flex: 1;
-  text-align: center;
-}
-
-#music-btn {
-  background: #4a4a6e;
-  color: white;
-  border: none;
-  padding: 8px 12px;
-  font-size: 14px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: 'Courier New', monospace;
-  transition: background 0.2s;
-}
-
-#music-btn:hover {
-  background: #5a5a8e;
-}
-
-#music-btn.off {
-  background: #333;
-  color: #888;
-}
-
-#input-controls {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.control-group {
+.weapon-btn {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-}
-
-.control-group label {
-  font-size: 14px;
-  color: #aaa;
-}
-
-.control-group input[type="range"] {
-  width: 150px;
+  align-items: center;
+  gap: 3px;
+  background: #3a3a5e;
+  border: 2px solid #555;
+  border-radius: 6px;
+  padding: 8px 12px;
   cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 70px;
+  position: relative;
 }
 
-#fire-btn {
-  background: #ff6b6b;
-  color: white;
-  border: none;
-  padding: 15px 30px;
-  font-size: 18px;
-  font-weight: bold;
-  border-radius: 5px;
-  cursor: pointer;
-  font-family: 'Courier New', monospace;
-  transition: background 0.2s;
-  margin-left: auto;
+.weapon-btn:hover:not(:disabled) {
+  background: #4a4a7e;
+  border-color: #888;
 }
 
-#fire-btn:hover:not(:disabled) {
-  background: #ff8585;
+.weapon-btn.selected {
+  background: #5a5a9e;
+  border-color: #ff6b6b;
+  box-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
 }
 
-#fire-btn:disabled {
-  background: #555;
+.weapon-btn:disabled,
+.weapon-btn.no-ammo {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-input[type="range"] {
-  -webkit-appearance: none;
-  background: #444;
-  height: 8px;
-  border-radius: 4px;
+.weapon-btn.ui-disabled {
+  pointer-events: none;
+  opacity: 0.6;
 }
 
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
+.weapon-name {
+  font-size: 11px;
+  color: #fff;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.weapon-ammo {
+  font-size: 10px;
+  color: #6bcfff;
+  font-weight: bold;
+}
+
+.weapon-key {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #ff6b6b;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
   width: 18px;
   height: 18px;
-  background: #ff6b6b;
   border-radius: 50%;
-  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Buff Indicator */
+.buff-indicator {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 10;
+}
+
+.buff-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(30, 30, 50, 0.9);
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 2px solid;
+  backdrop-filter: blur(5px);
+}
+
+.buff-icon {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.buff-info {
+  font-size: 12px;
+  font-weight: bold;
+  color: #fff;
 }
 
 /* Responsive adjustments */
 @media (max-width: 600px) {
-  #controls {
-    min-width: auto;
-    width: 95%;
-    padding: 10px 15px;
+  .weapon-selector {
+    bottom: 15px;
+    padding: 8px 10px;
+    gap: 5px;
   }
 
-  #input-controls {
-    gap: 10px;
+  .weapon-btn {
+    padding: 6px 8px;
+    min-width: 55px;
   }
 
-  .control-group input[type="range"] {
-    width: 100px;
+  .weapon-name {
+    font-size: 9px;
   }
 
-  #fire-btn {
-    padding: 12px 20px;
-    font-size: 16px;
+  .weapon-ammo {
+    font-size: 8px;
   }
 
-  #player-info {
-    font-size: 14px;
+  .weapon-key {
+    width: 14px;
+    height: 14px;
+    font-size: 8px;
   }
 }

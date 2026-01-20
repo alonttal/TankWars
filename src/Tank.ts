@@ -2,10 +2,11 @@ import {
   TANK_WIDTH,
   TANK_HEIGHT,
   BARREL_LENGTH,
-  BARREL_WIDTH,
   BASE_HEIGHT
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
+import { WeaponType, getDefaultAmmo, WEAPON_CONFIGS } from './weapons/WeaponTypes.ts';
+import { ActiveBuff, PowerUpType } from './powerups/PowerUpTypes.ts';
 
 interface SmokeParticle {
   x: number;
@@ -85,6 +86,13 @@ export class Tank {
   playerIndex: number;
   facingRight: boolean;
 
+  // Weapon system
+  selectedWeapon: WeaponType;
+  weaponAmmo: Map<WeaponType, number>;
+
+  // Power-up buffs
+  activeBuffs: ActiveBuff[];
+
   // Damage visuals
   private smokeParticles: SmokeParticle[];
   private smokeTimer: number;
@@ -141,6 +149,14 @@ export class Tank {
     this.angle = facingRight ? 45 : 135; // Default angle pointing up and towards center
     this.health = 100;
     this.isAlive = true;
+
+    // Initialize weapon system
+    this.selectedWeapon = 'standard';
+    this.weaponAmmo = getDefaultAmmo();
+
+    // Initialize buffs
+    this.activeBuffs = [];
+
     this.smokeParticles = [];
     this.smokeTimer = 0;
     this.damageFlash = 0;
@@ -172,6 +188,25 @@ export class Tank {
   }
 
   takeDamage(amount: number): void {
+    // Check for shield buff
+    const shieldBuff = this.activeBuffs.find(b => b.type === 'shield');
+    if (shieldBuff) {
+      const absorbed = Math.min(amount, shieldBuff.remainingValue);
+      shieldBuff.remainingValue -= absorbed;
+      amount -= absorbed;
+
+      // Remove shield if depleted
+      if (shieldBuff.remainingValue <= 0) {
+        this.activeBuffs = this.activeBuffs.filter(b => b.type !== 'shield');
+      }
+
+      // If shield absorbed all damage, still show minor reaction
+      if (amount <= 0) {
+        this.damageFlash = 0.1;
+        return;
+      }
+    }
+
     this.health -= amount;
     this.damageFlash = 0.3; // Flash for 0.3 seconds
 
@@ -497,6 +532,117 @@ export class Tank {
     };
   }
 
+  // Weapon management
+  selectWeapon(weapon: WeaponType): boolean {
+    const ammo = this.weaponAmmo.get(weapon);
+    // Can select if unlimited ammo (-1) or has ammo remaining
+    if (ammo === -1 || (ammo !== undefined && ammo > 0)) {
+      this.selectedWeapon = weapon;
+      return true;
+    }
+    return false;
+  }
+
+  getSelectedWeaponConfig() {
+    return WEAPON_CONFIGS[this.selectedWeapon];
+  }
+
+  useAmmo(): void {
+    const ammo = this.weaponAmmo.get(this.selectedWeapon);
+    if (ammo !== undefined && ammo > 0) {
+      this.weaponAmmo.set(this.selectedWeapon, ammo - 1);
+
+      // Auto-switch to standard if out of ammo
+      if (this.weaponAmmo.get(this.selectedWeapon) === 0) {
+        this.selectedWeapon = 'standard';
+      }
+    }
+  }
+
+  getAmmo(weapon: WeaponType): number {
+    return this.weaponAmmo.get(weapon) ?? 0;
+  }
+
+  hasAmmo(weapon: WeaponType): boolean {
+    const ammo = this.weaponAmmo.get(weapon);
+    return ammo === -1 || (ammo !== undefined && ammo > 0);
+  }
+
+  // Buff management
+  addBuff(buff: ActiveBuff): void {
+    // Check if buff of same type already exists
+    const existingIndex = this.activeBuffs.findIndex(b => b.type === buff.type);
+    if (existingIndex >= 0) {
+      // Stack or replace depending on type
+      if (buff.type === 'shield') {
+        // Stack shield HP
+        this.activeBuffs[existingIndex].remainingValue += buff.remainingValue;
+      } else {
+        // Replace other buffs
+        this.activeBuffs[existingIndex] = buff;
+      }
+    } else {
+      this.activeBuffs.push(buff);
+    }
+  }
+
+  removeBuff(type: PowerUpType): void {
+    this.activeBuffs = this.activeBuffs.filter(b => b.type !== type);
+  }
+
+  hasBuff(type: PowerUpType): boolean {
+    return this.activeBuffs.some(b => b.type === type);
+  }
+
+  getBuff(type: PowerUpType): ActiveBuff | undefined {
+    return this.activeBuffs.find(b => b.type === type);
+  }
+
+  // Get damage multiplier from buffs
+  getDamageMultiplier(): number {
+    const damageBuff = this.activeBuffs.find(b => b.type === 'damage_boost');
+    return damageBuff ? damageBuff.remainingValue : 1.0;
+  }
+
+  // Consume damage boost after firing
+  consumeDamageBoost(): void {
+    const damageBuff = this.activeBuffs.find(b => b.type === 'damage_boost');
+    if (damageBuff && damageBuff.duration !== null) {
+      damageBuff.duration--;
+      if (damageBuff.duration <= 0) {
+        this.removeBuff('damage_boost');
+      }
+    }
+  }
+
+  // Check if has double shot buff
+  hasDoubleShot(): boolean {
+    return this.hasBuff('double_shot');
+  }
+
+  // Consume double shot after use
+  consumeDoubleShot(): void {
+    const doubleShotBuff = this.activeBuffs.find(b => b.type === 'double_shot');
+    if (doubleShotBuff && doubleShotBuff.duration !== null) {
+      doubleShotBuff.duration--;
+      if (doubleShotBuff.duration <= 0) {
+        this.removeBuff('double_shot');
+      }
+    }
+  }
+
+  // Heal the tank
+  heal(amount: number): void {
+    this.health = Math.min(100, this.health + amount);
+  }
+
+  // Reset weapon and buffs for new game
+  resetWeaponsAndBuffs(): void {
+    this.selectedWeapon = 'standard';
+    this.weaponAmmo = getDefaultAmmo();
+    this.activeBuffs = [];
+  }
+
   render(ctx: CanvasRenderingContext2D, isCurrentPlayer: boolean, isCharging: boolean = false): void {
     if (!this.isAlive) {
       this.renderDestroyed(ctx);
@@ -507,20 +653,6 @@ export class Tank {
     ctx.save();
     if (this.hitReactionTime > 0) {
       ctx.translate(this.hitReactionX, this.hitReactionY);
-    }
-
-    // Draw charge particles (behind everything)
-    for (const particle of this.chargeParticles) {
-      const alpha = particle.life / 0.5;
-      ctx.fillStyle = `rgba(255, 220, 100, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
-      ctx.fill();
-      // Add glow
-      ctx.fillStyle = `rgba(255, 150, 50, ${alpha * 0.5})`;
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, particle.size * 2, 0, Math.PI * 2);
-      ctx.fill();
     }
 
     // Draw smoke rings (behind everything)
@@ -542,141 +674,282 @@ export class Tank {
       ctx.fill();
     }
 
-    // Idle bobbing animation
-    const idleBob = Math.sin(this.idleTime) * 0.5;
-    const tankY = this.y - TANK_HEIGHT + idleBob;
+    // Idle engine vibration (subtle rumble, no vertical movement)
+    const vibrationX = (Math.sin(this.idleTime * 8) * 0.3 + Math.sin(this.idleTime * 10) * 0.2);
+    const vibrationY = (Math.cos(this.idleTime * 9) * 0.2);
+    const tankY = this.y - TANK_HEIGHT;
 
-    // Power charge glow effect
-    if (isCurrentPlayer && isCharging) {
-      const chargeGlow = ctx.createRadialGradient(
-        this.x, tankY + TANK_HEIGHT / 2, 0,
-        this.x, tankY + TANK_HEIGHT / 2, TANK_WIDTH
-      );
-      const pulse = 0.5 + Math.sin(this.idleTime * 8) * 0.3;
-      chargeGlow.addColorStop(0, `rgba(255, 200, 100, ${pulse * 0.6})`);
-      chargeGlow.addColorStop(0.5, `rgba(255, 150, 50, ${pulse * 0.3})`);
-      chargeGlow.addColorStop(1, 'rgba(255, 100, 0, 0)');
-      ctx.fillStyle = chargeGlow;
-      ctx.beginPath();
-      ctx.arc(this.x, tankY + TANK_HEIGHT / 2, TANK_WIDTH, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Calculate damage tinting (darken as health decreases)
+    // Calculate damage tinting
     const healthPercent = this.health / 100;
-    const damageDarken = Math.floor((1 - healthPercent) * 50); // Up to 50 darker
+    const damageDarken = Math.floor((1 - healthPercent) * 40);
 
-    // Damage flash effect
+    // Get colors
     let tankColor = this.color;
-    let highlightColor = this.lightenColor(this.color, 40);
-    let shadowColor = this.darkenColor(this.color, 40);
+    let highlightColor = this.lightenColor(this.color, 60);
+    let shadowColor = this.darkenColor(this.color, 50);
+    const outlineColor = this.darkenColor(this.color, 80);
 
-    // Apply damage darkening
     if (healthPercent < 1) {
       tankColor = this.darkenColor(this.color, damageDarken);
-      highlightColor = this.darkenColor(this.lightenColor(this.color, 40), damageDarken);
-      shadowColor = this.darkenColor(this.darkenColor(this.color, 40), damageDarken);
+      highlightColor = this.darkenColor(this.lightenColor(this.color, 60), damageDarken);
+      shadowColor = this.darkenColor(this.darkenColor(this.color, 50), damageDarken);
     }
 
     if (this.damageFlash > 0) {
       tankColor = '#fff';
       highlightColor = '#fff';
-      shadowColor = '#ccc';
+      shadowColor = '#ddd';
     }
 
-    // Draw tank shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    // === SHADOW ===
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
     ctx.beginPath();
-    ctx.ellipse(this.x + 3, this.y + 2, TANK_WIDTH / 2 + 2, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(this.x + 2, this.y + 3, TANK_WIDTH / 2 + 12, 5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Draw tracks (detailed with treads)
-    const trackHeight = 8;
-    const trackY = this.y - trackHeight + idleBob;
+    // === CONTINUOUS TRACK (Chunky cartoon tank tread) ===
+    const trackWidth = TANK_WIDTH + 14; // Match body width
+    const trackHeight = 14;
+    const trackY = this.y - trackHeight + 2;
+    const trackRadius = trackHeight / 2; // Rounded ends
 
-    // Track base (dark)
+    // Track shadow
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.roundRect(
+      this.x - trackWidth / 2 + 2,
+      trackY + 2,
+      trackWidth,
+      trackHeight,
+      trackRadius
+    );
+    ctx.fill();
+
+    // Main track body (dark rubber)
+    ctx.fillStyle = '#2a2a2a';
+    ctx.beginPath();
+    ctx.roundRect(
+      this.x - trackWidth / 2,
+      trackY,
+      trackWidth,
+      trackHeight,
+      trackRadius
+    );
+    ctx.fill();
+
+    // Track outline
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(
+      this.x - trackWidth / 2,
+      trackY,
+      trackWidth,
+      trackHeight,
+      trackRadius
+    );
+    ctx.stroke();
+
+    // Inner track area (where wheels would be - darker inset)
     ctx.fillStyle = '#1a1a1a';
     ctx.beginPath();
-    ctx.roundRect(this.x - TANK_WIDTH / 2 - 2, trackY, TANK_WIDTH + 4, trackHeight, 3);
+    ctx.roundRect(
+      this.x - trackWidth / 2 + 4,
+      trackY + 3,
+      trackWidth - 8,
+      trackHeight - 6,
+      trackRadius - 2
+    );
     ctx.fill();
 
-    // Track wheels
-    ctx.fillStyle = '#333';
-    const wheelCount = 5;
-    const wheelSpacing = TANK_WIDTH / (wheelCount - 1);
-    for (let i = 0; i < wheelCount; i++) {
-      const wheelX = this.x - TANK_WIDTH / 2 + i * wheelSpacing;
-      ctx.beginPath();
-      ctx.arc(wheelX, trackY + trackHeight / 2, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    // Animated tread segments
+    const treadOffset = (this.idleTime * 0.5) % 1; // Slow animation
+    const treadCount = 10;
+    const treadSpacing = (trackWidth - 8) / treadCount;
 
-    // Track treads (animated)
-    ctx.strokeStyle = '#444';
-    ctx.lineWidth = 1;
-    const treadOffset = (this.idleTime * 10) % 4;
-    for (let i = -1; i < TANK_WIDTH / 4 + 1; i++) {
-      const tx = this.x - TANK_WIDTH / 2 + i * 4 + treadOffset;
-      if (tx > this.x - TANK_WIDTH / 2 - 2 && tx < this.x + TANK_WIDTH / 2 + 2) {
+    ctx.fillStyle = '#3a3a3a';
+    for (let i = 0; i < treadCount; i++) {
+      const tx = this.x - trackWidth / 2 + 6 + (i + treadOffset) * treadSpacing;
+      if (tx < this.x + trackWidth / 2 - 6) {
         ctx.beginPath();
-        ctx.moveTo(tx, trackY);
-        ctx.lineTo(tx, trackY + trackHeight);
-        ctx.stroke();
+        ctx.roundRect(tx, trackY + 1, 3, trackHeight - 2, 1);
+        ctx.fill();
       }
     }
 
-    // Draw tank body (hull) with gradient shading
-    const bodyGradient = ctx.createLinearGradient(
-      this.x - TANK_WIDTH / 2, tankY,
-      this.x - TANK_WIDTH / 2, tankY + TANK_HEIGHT
-    );
-    bodyGradient.addColorStop(0, highlightColor);
-    bodyGradient.addColorStop(0.3, tankColor);
-    bodyGradient.addColorStop(1, shadowColor);
+    // Track teeth/grips on bottom edge
+    ctx.fillStyle = '#222';
+    const teethCount = 12;
+    const teethSpacing = (trackWidth - 16) / (teethCount - 1);
+    for (let i = 0; i < teethCount; i++) {
+      const tx = this.x - trackWidth / 2 + 8 + i * teethSpacing;
+      ctx.beginPath();
+      ctx.roundRect(tx - 2, trackY + trackHeight - 4, 4, 4, 1);
+      ctx.fill();
+    }
 
-    // Hull shape (angled front)
-    ctx.fillStyle = bodyGradient;
+    // Highlight on top of track
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.beginPath();
-    const hullLeft = this.x - TANK_WIDTH / 2;
-    const hullRight = this.x + TANK_WIDTH / 2;
-    ctx.moveTo(hullLeft + 5, tankY + TANK_HEIGHT);
-    ctx.lineTo(hullLeft, tankY + TANK_HEIGHT - 5);
-    ctx.lineTo(hullLeft, tankY + 5);
-    ctx.lineTo(hullLeft + 8, tankY);
-    ctx.lineTo(hullRight - 8, tankY);
-    ctx.lineTo(hullRight, tankY + 5);
-    ctx.lineTo(hullRight, tankY + TANK_HEIGHT - 5);
-    ctx.lineTo(hullRight - 5, tankY + TANK_HEIGHT);
-    ctx.closePath();
+    ctx.roundRect(
+      this.x - trackWidth / 2 + 6,
+      trackY + 1,
+      trackWidth - 12,
+      3,
+      2
+    );
     ctx.fill();
 
-    // Hull edge highlight
-    ctx.strokeStyle = highlightColor;
-    ctx.lineWidth = 1;
+    // Drive wheel hints at ends (small circles visible through track)
+    ctx.fillStyle = '#444';
     ctx.beginPath();
-    ctx.moveTo(hullLeft + 8, tankY);
-    ctx.lineTo(hullRight - 8, tankY);
+    ctx.arc(this.x - trackWidth / 2 + trackRadius, trackY + trackHeight / 2, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(this.x + trackWidth / 2 - trackRadius, trackY + trackHeight / 2, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Drive wheel center dots
+    ctx.fillStyle = '#555';
+    ctx.beginPath();
+    ctx.arc(this.x - trackWidth / 2 + trackRadius, trackY + trackHeight / 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(this.x + trackWidth / 2 - trackRadius, trackY + trackHeight / 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === TANK BODY (Wide, chunky cartoon shape with engine vibration) ===
+    const bodyWidth = TANK_WIDTH + 14; // Wider body
+    const bodyHeight = TANK_HEIGHT - 6; // Flatter body
+    const bodyY = tankY + 6 + vibrationY;
+    const bodyX = this.x + vibrationX;
+
+    // Body shadow (stays still)
+    ctx.fillStyle = shadowColor;
+    ctx.beginPath();
+    ctx.roundRect(
+      this.x - bodyWidth / 2 + 4,
+      tankY + 8,
+      bodyWidth - 4,
+      bodyHeight,
+      6
+    );
+    ctx.fill();
+
+    // Main body (with vibration)
+    const bodyGradient = ctx.createLinearGradient(
+      bodyX, bodyY,
+      bodyX, bodyY + bodyHeight
+    );
+    bodyGradient.addColorStop(0, highlightColor);
+    bodyGradient.addColorStop(0.4, tankColor);
+    bodyGradient.addColorStop(1, shadowColor);
+
+    ctx.fillStyle = bodyGradient;
+    ctx.beginPath();
+    ctx.roundRect(
+      bodyX - bodyWidth / 2 + 2,
+      bodyY,
+      bodyWidth - 4,
+      bodyHeight,
+      6
+    );
+    ctx.fill();
+
+    // Body outline
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(
+      bodyX - bodyWidth / 2 + 2,
+      bodyY,
+      bodyWidth - 4,
+      bodyHeight,
+      6
+    );
     ctx.stroke();
 
-    // Hull detail lines (panels)
-    ctx.strokeStyle = shadowColor;
-    ctx.lineWidth = 1;
+    // Body shine (top highlight)
+    ctx.fillStyle = `rgba(255, 255, 255, 0.3)`;
     ctx.beginPath();
-    ctx.moveTo(this.x - 10, tankY + 4);
-    ctx.lineTo(this.x - 10, tankY + TANK_HEIGHT - 4);
-    ctx.moveTo(this.x + 10, tankY + 4);
-    ctx.lineTo(this.x + 10, tankY + TANK_HEIGHT - 4);
-    ctx.stroke();
+    ctx.roundRect(
+      bodyX - bodyWidth / 3,
+      bodyY + 2,
+      bodyWidth / 1.5 - 4,
+      3,
+      2
+    );
+    ctx.fill();
 
-    // Draw turret (rounded with detail)
-    const turretWidth = TANK_WIDTH * 0.5;
-    const turretHeight = 10;
-    const turretY = tankY - turretHeight + 2;
+    // Side panel detail (left)
+    ctx.fillStyle = shadowColor;
+    ctx.beginPath();
+    ctx.roundRect(
+      bodyX - bodyWidth / 2 + 5,
+      bodyY + 3,
+      8,
+      bodyHeight - 6,
+      2
+    );
+    ctx.fill();
 
-    // Turret base
-    const turretGradient = ctx.createLinearGradient(
-      this.x, turretY,
-      this.x, turretY + turretHeight
+    // Side panel detail (right)
+    ctx.beginPath();
+    ctx.roundRect(
+      bodyX + bodyWidth / 2 - 13,
+      bodyY + 3,
+      8,
+      bodyHeight - 6,
+      2
+    );
+    ctx.fill();
+
+    // === EXHAUST PUFFS (from back of tank) ===
+    const exhaustX = this.facingRight ? this.x - bodyWidth / 2 : this.x + bodyWidth / 2;
+    const exhaustY = bodyY + bodyHeight / 2;
+    const puffPhase = this.idleTime * 3;
+
+    // Small exhaust puffs
+    ctx.fillStyle = 'rgba(100, 100, 100, 0.4)';
+    const puff1Size = 3 + Math.sin(puffPhase) * 1;
+    const puff1Offset = 4 + Math.sin(puffPhase) * 2;
+    ctx.beginPath();
+    ctx.arc(
+      this.facingRight ? exhaustX - puff1Offset : exhaustX + puff1Offset,
+      exhaustY - 1,
+      puff1Size,
+      0, Math.PI * 2
+    );
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(80, 80, 80, 0.3)';
+    const puff2Size = 2 + Math.cos(puffPhase * 1.3) * 1;
+    const puff2Offset = 8 + Math.cos(puffPhase) * 2;
+    ctx.beginPath();
+    ctx.arc(
+      this.facingRight ? exhaustX - puff2Offset : exhaustX + puff2Offset,
+      exhaustY - 3,
+      puff2Size,
+      0, Math.PI * 2
+    );
+    ctx.fill();
+
+    // === TURRET (Wider dome to match body) ===
+    const turretWidth = TANK_WIDTH * 0.7; // Wider turret
+    const turretHeight = 12; // Slightly flatter
+    const turretY = bodyY - turretHeight + 6;
+    const turretX = bodyX; // Turret follows body vibration
+
+    // Turret shadow (stays still)
+    ctx.fillStyle = shadowColor;
+    ctx.beginPath();
+    ctx.ellipse(this.x + 1, turretY + turretHeight / 2 + 2, turretWidth / 2, turretHeight / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Main turret (dome shape)
+    const turretGradient = ctx.createRadialGradient(
+      turretX - 4, turretY + 2, 0,
+      turretX, turretY + turretHeight / 2, turretWidth / 2
     );
     turretGradient.addColorStop(0, highlightColor);
     turretGradient.addColorStop(0.5, tankColor);
@@ -684,112 +957,99 @@ export class Tank {
 
     ctx.fillStyle = turretGradient;
     ctx.beginPath();
-    ctx.roundRect(this.x - turretWidth / 2, turretY, turretWidth, turretHeight, 4);
+    ctx.ellipse(turretX, turretY + turretHeight / 2, turretWidth / 2, turretHeight / 2, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Turret dome top
+    // Turret outline
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(this.x, turretY + 2, turretWidth / 3, 5, 0, Math.PI, 0);
+    ctx.ellipse(turretX, turretY + turretHeight / 2, turretWidth / 2, turretHeight / 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Turret shine
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(turretX - 4, turretY + 3, turretWidth / 3, 3, -0.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Turret hatch
+    // Hatch on turret
     ctx.fillStyle = shadowColor;
     ctx.beginPath();
-    ctx.arc(this.x, turretY + 3, 3, 0, Math.PI * 2);
+    ctx.arc(turretX, turretY + turretHeight / 2, 5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Hatch highlight
     ctx.fillStyle = highlightColor;
     ctx.beginPath();
-    ctx.arc(this.x - 0.5, turretY + 2.5, 1, 0, Math.PI * 2);
+    ctx.arc(turretX - 1, turretY + turretHeight / 2 - 1, 2, 0, Math.PI * 2);
     ctx.fill();
 
-    // Draw barrel with recoil (metallic look)
+    // === BARREL (Chunky and fun, follows turret vibration) ===
     const angleRad = (this.angle * Math.PI) / 180;
     const recoiledLength = BARREL_LENGTH - this.recoilOffset;
-    const barrelStartX = this.x;
+    const barrelStartX = turretX;
     const barrelStartY = turretY + turretHeight / 2;
-    const barrelEndX = barrelStartX + Math.cos(angleRad) * recoiledLength;
-    const barrelEndY = barrelStartY - Math.sin(angleRad) * recoiledLength;
+
+    // Barrel thickness
+    const barrelThickness = 8;
+
+    ctx.save();
+    ctx.translate(barrelStartX, barrelStartY);
+    ctx.rotate(-angleRad);
 
     // Barrel shadow
-    ctx.strokeStyle = shadowColor;
-    ctx.lineWidth = BARREL_WIDTH + 2;
-    ctx.lineCap = 'round';
+    ctx.fillStyle = shadowColor;
     ctx.beginPath();
-    ctx.moveTo(barrelStartX + 1, barrelStartY + 1);
-    ctx.lineTo(barrelEndX + 1, barrelEndY + 1);
-    ctx.stroke();
+    ctx.roundRect(1, -barrelThickness / 2 + 1, recoiledLength, barrelThickness, 3);
+    ctx.fill();
 
-    // Barrel main
-    ctx.strokeStyle = tankColor;
-    ctx.lineWidth = BARREL_WIDTH;
+    // Main barrel
+    const barrelGradient = ctx.createLinearGradient(0, -barrelThickness / 2, 0, barrelThickness / 2);
+    barrelGradient.addColorStop(0, highlightColor);
+    barrelGradient.addColorStop(0.3, tankColor);
+    barrelGradient.addColorStop(1, shadowColor);
+
+    ctx.fillStyle = barrelGradient;
     ctx.beginPath();
-    ctx.moveTo(barrelStartX, barrelStartY);
-    ctx.lineTo(barrelEndX, barrelEndY);
-    ctx.stroke();
+    ctx.roundRect(0, -barrelThickness / 2, recoiledLength, barrelThickness, 3);
+    ctx.fill();
 
-    // Barrel highlight
-    ctx.strokeStyle = highlightColor;
+    // Barrel outline
+    ctx.strokeStyle = outlineColor;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(barrelStartX, barrelStartY - 1);
-    ctx.lineTo(barrelEndX, barrelEndY - 1);
+    ctx.roundRect(0, -barrelThickness / 2, recoiledLength, barrelThickness, 3);
     ctx.stroke();
 
-    // Barrel tip ring
-    ctx.strokeStyle = shadowColor;
-    ctx.lineWidth = 2;
-    const tipX = barrelStartX + Math.cos(angleRad) * (recoiledLength - 3);
-    const tipY = barrelStartY - Math.sin(angleRad) * (recoiledLength - 3);
+    // Muzzle brake (chunky end piece)
+    const muzzleX = recoiledLength - 6;
+    ctx.fillStyle = shadowColor;
     ctx.beginPath();
-    ctx.arc(tipX, tipY, BARREL_WIDTH / 2 + 1, 0, Math.PI * 2);
+    ctx.roundRect(muzzleX, -barrelThickness / 2 - 2, 8, barrelThickness + 4, 2);
+    ctx.fill();
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Draw muzzle flash
-    if (this.muzzleFlashTime > 0) {
-      const flashIntensity = this.muzzleFlashTime / 0.15;
-      const flashX = this.x + Math.cos(angleRad) * BARREL_LENGTH;
-      const flashY = tankY - Math.sin(angleRad) * BARREL_LENGTH;
+    // Barrel highlight stripe
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.fillRect(4, -barrelThickness / 2 + 1, recoiledLength - 12, 2);
 
-      // Outer glow
-      const gradient = ctx.createRadialGradient(flashX, flashY, 0, flashX, flashY, 25 * flashIntensity);
-      gradient.addColorStop(0, `rgba(255, 255, 200, ${flashIntensity})`);
-      gradient.addColorStop(0.3, `rgba(255, 200, 50, ${flashIntensity * 0.8})`);
-      gradient.addColorStop(0.6, `rgba(255, 100, 0, ${flashIntensity * 0.4})`);
-      gradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(flashX, flashY, 25 * flashIntensity, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Bright core
-      ctx.fillStyle = `rgba(255, 255, 255, ${flashIntensity})`;
-      ctx.beginPath();
-      ctx.arc(flashX, flashY, 6 * flashIntensity, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Draw muzzle particles
-    for (const particle of this.muzzleParticles) {
-      const alpha = particle.life / 0.25;
-      ctx.fillStyle = particle.color;
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+    ctx.restore();
 
     // Draw spark particles
     for (const particle of this.sparkParticles) {
       const alpha = particle.life / 0.6;
-      // Sparks are bright yellow/white
       const brightness = 200 + Math.floor(Math.random() * 55);
       ctx.fillStyle = `rgba(${brightness}, ${brightness - 50}, 50, ${alpha})`;
       ctx.beginPath();
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
 
-      // Spark trail
       ctx.strokeStyle = `rgba(255, 200, 100, ${alpha * 0.5})`;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -798,90 +1058,83 @@ export class Tank {
       ctx.stroke();
     }
 
-    // Draw fire particles (for critical health)
+    // Draw fire particles (critical health)
     for (const particle of this.fireParticles) {
       const lifeRatio = particle.life / particle.maxLife;
-      const alpha = lifeRatio;
-
-      // Fire gradient colors
-      const r = 255;
-      const g = Math.floor(100 + lifeRatio * 100);
-      const b = 0;
-
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      ctx.fillStyle = `rgba(255, ${Math.floor(100 + lifeRatio * 100)}, 0, ${lifeRatio})`;
       ctx.beginPath();
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
 
-      // Inner bright core
-      ctx.fillStyle = `rgba(255, 255, 200, ${alpha * 0.8})`;
+      ctx.fillStyle = `rgba(255, 255, 200, ${lifeRatio * 0.8})`;
       ctx.beginPath();
       ctx.arc(particle.x, particle.y, particle.size * 0.4, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Highlight current player with pulsing glow
+    // === CURRENT PLAYER INDICATOR ===
     if (isCurrentPlayer) {
-      const glowIntensity = 0.3 + Math.sin(this.glowPulse) * 0.2;
+      // Double chevron indicator (more stylized)
+      const arrowBounce = Math.sin(this.idleTime * 3) * 3;
+      const chevronY = turretY - 16 + arrowBounce;
 
-      // Pulsing glow around tank
-      const glowGradient = ctx.createRadialGradient(
-        this.x, tankY + TANK_HEIGHT / 2, TANK_WIDTH * 0.3,
-        this.x, tankY + TANK_HEIGHT / 2, TANK_WIDTH * 1.2
-      );
-      glowGradient.addColorStop(0, `rgba(255, 255, 255, ${glowIntensity})`);
-      glowGradient.addColorStop(0.5, `rgba(255, 255, 200, ${glowIntensity * 0.5})`);
-      glowGradient.addColorStop(1, 'rgba(255, 255, 150, 0)');
-      ctx.fillStyle = glowGradient;
-      ctx.beginPath();
-      ctx.arc(this.x, tankY + TANK_HEIGHT / 2, TANK_WIDTH * 1.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Selection rectangle
+      // Outer chevron
       ctx.strokeStyle = '#FFF';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(
-        this.x - TANK_WIDTH / 2 - 3,
-        tankY - 3,
-        TANK_WIDTH + 6,
-        TANK_HEIGHT + 8
-      );
-
-      // Draw player indicator arrow (animated bounce)
-      const arrowBounce = Math.sin(this.idleTime * 2) * 3;
-      ctx.fillStyle = '#FFF';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(this.x, tankY - 20 + arrowBounce);
-      ctx.lineTo(this.x - 8, tankY - 30 + arrowBounce);
-      ctx.lineTo(this.x + 8, tankY - 30 + arrowBounce);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(this.x - 8, chevronY - 6);
+      ctx.lineTo(this.x, chevronY);
+      ctx.lineTo(this.x + 8, chevronY - 6);
+      ctx.stroke();
+
+      // Inner chevron
+      ctx.beginPath();
+      ctx.moveTo(this.x - 6, chevronY - 12);
+      ctx.lineTo(this.x, chevronY - 6);
+      ctx.lineTo(this.x + 6, chevronY - 12);
+      ctx.stroke();
+
+      ctx.lineCap = 'butt';
+      ctx.lineJoin = 'miter';
     }
 
-    // Draw health bar
-    const healthBarWidth = TANK_WIDTH;
-    const healthBarHeight = 5;
-    const healthBarY = tankY - 15;
+    // === HEALTH BAR (Rounded, clean, wider) ===
+    const healthBarWidth = bodyWidth - 4;
+    const healthBarHeight = 6;
+    const healthBarY = turretY - 14;
 
     // Background
-    ctx.fillStyle = '#333';
-    ctx.fillRect(
-      this.x - healthBarWidth / 2,
-      healthBarY,
-      healthBarWidth,
-      healthBarHeight
-    );
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.roundRect(this.x - healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight, 3);
+    ctx.fill();
 
-    // Health (reuse healthPercent calculated earlier)
-    ctx.fillStyle = healthPercent > 0.5 ? '#4ECB71' : healthPercent > 0.25 ? '#FFD93D' : '#FF6B6B';
-    ctx.fillRect(
-      this.x - healthBarWidth / 2,
-      healthBarY,
-      healthBarWidth * healthPercent,
-      healthBarHeight
+    // Health fill
+    const healthColor = healthPercent > 0.5 ? '#4ECB71' : healthPercent > 0.25 ? '#FFD93D' : '#FF6B6B';
+    ctx.fillStyle = healthColor;
+    ctx.beginPath();
+    ctx.roundRect(
+      this.x - healthBarWidth / 2 + 1,
+      healthBarY + 1,
+      (healthBarWidth - 2) * healthPercent,
+      healthBarHeight - 2,
+      2
     );
+    ctx.fill();
 
-    // Restore context from hit reaction offset
+    // Health bar outline
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(this.x - healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight, 3);
+    ctx.stroke();
+
+    // Health bar shine
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.fillRect(this.x - healthBarWidth / 2 + 2, healthBarY + 1, (healthBarWidth - 4) * healthPercent, 2);
+
     ctx.restore();
   }
 
@@ -902,34 +1155,24 @@ export class Tank {
       ctx.fill();
     }
 
-    // Draw destruction debris
+    // Draw destruction debris (chunky cartoon pieces)
     for (const debris of this.destructionDebris) {
       const alpha = Math.min(1, debris.life);
       ctx.save();
       ctx.translate(debris.x, debris.y);
       ctx.rotate(debris.rotation);
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = debris.color;
 
-      // Draw varied debris shapes
-      if (debris.size > 6) {
-        // Larger debris - irregular polygon
-        ctx.beginPath();
-        for (let i = 0; i < 5; i++) {
-          const angle = (i / 5) * Math.PI * 2;
-          const radius = debris.size * (0.5 + Math.random() * 0.5);
-          if (i === 0) {
-            ctx.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
-          } else {
-            ctx.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
-          }
-        }
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        // Smaller debris - rectangle
-        ctx.fillRect(-debris.size / 2, -debris.size / 2, debris.size, debris.size);
-      }
+      // Rounded debris pieces
+      ctx.fillStyle = debris.color;
+      ctx.beginPath();
+      ctx.roundRect(-debris.size / 2, -debris.size / 2, debris.size, debris.size, debris.size / 4);
+      ctx.fill();
+
+      // Debris outline
+      ctx.strokeStyle = this.darkenColor(debris.color, 40);
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
       ctx.restore();
     }
@@ -939,79 +1182,132 @@ export class Tank {
       ctx.save();
       ctx.translate(this.x, this.y + this.deathPopY);
 
-      // Flash effect during stage 1
-      if (this.deathAnimationStage === 1) {
-        ctx.fillStyle = '#fff';
-      } else {
-        ctx.fillStyle = this.darkenColor(this.color, 30);
-      }
-
-      // Tank body (simplified during death)
-      ctx.fillRect(-TANK_WIDTH / 2, -TANK_HEIGHT, TANK_WIDTH, TANK_HEIGHT);
-
       // Add rotation wobble during pop
       if (this.deathAnimationStage === 2) {
-        const wobble = Math.sin(this.idleTime * 15) * 0.1;
+        const wobble = Math.sin(this.idleTime * 15) * 0.15;
         ctx.rotate(wobble);
       }
 
-      ctx.restore();
-    } else {
-      // Draw destroyed tank wreckage (smaller, darker)
-      ctx.fillStyle = '#333';
-      ctx.fillRect(
-        this.x - TANK_WIDTH / 2,
-        this.y - TANK_HEIGHT / 3,
-        TANK_WIDTH,
-        TANK_HEIGHT / 3
-      );
+      // Flash effect during stage 1
+      const tankColor = this.deathAnimationStage === 1 ? '#fff' : this.darkenColor(this.color, 30);
+      const shadowColor = this.deathAnimationStage === 1 ? '#ddd' : this.darkenColor(this.color, 60);
 
-      // Draw bent/broken barrel
-      ctx.strokeStyle = '#444';
-      ctx.lineWidth = 4;
+      // Simplified tank body (rounded)
+      ctx.fillStyle = shadowColor;
       ctx.beginPath();
-      ctx.moveTo(this.x, this.y - TANK_HEIGHT / 3);
-      ctx.lineTo(this.x + 10, this.y - TANK_HEIGHT / 3 - 5);
-      ctx.lineTo(this.x + 15, this.y - TANK_HEIGHT / 3 + 3);
+      ctx.roundRect(-TANK_WIDTH / 2 + 4, -TANK_HEIGHT + 4, TANK_WIDTH - 8, TANK_HEIGHT - 6, 6);
+      ctx.fill();
+
+      ctx.fillStyle = tankColor;
+      ctx.beginPath();
+      ctx.roundRect(-TANK_WIDTH / 2 + 2, -TANK_HEIGHT + 2, TANK_WIDTH - 4, TANK_HEIGHT - 6, 6);
+      ctx.fill();
+
+      // X eyes (defeated look)
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      // Left X
+      ctx.beginPath();
+      ctx.moveTo(-8, -TANK_HEIGHT / 2 - 2);
+      ctx.lineTo(-4, -TANK_HEIGHT / 2 + 2);
+      ctx.moveTo(-4, -TANK_HEIGHT / 2 - 2);
+      ctx.lineTo(-8, -TANK_HEIGHT / 2 + 2);
+      ctx.stroke();
+      // Right X
+      ctx.beginPath();
+      ctx.moveTo(4, -TANK_HEIGHT / 2 - 2);
+      ctx.lineTo(8, -TANK_HEIGHT / 2 + 2);
+      ctx.moveTo(8, -TANK_HEIGHT / 2 - 2);
+      ctx.lineTo(4, -TANK_HEIGHT / 2 + 2);
       ctx.stroke();
 
-      // Continuous smoke from wreckage
-      ctx.fillStyle = 'rgba(50, 50, 50, 0.4)';
+      ctx.restore();
+    } else {
+      // Draw destroyed tank wreckage (cute cartoon style)
+      const wreckY = this.y - 8;
+
+      // Wreck shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
       ctx.beginPath();
-      ctx.arc(this.x, this.y - TANK_HEIGHT * 0.6, 12 + Math.sin(this.idleTime) * 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(40, 40, 40, 0.3)';
-      ctx.beginPath();
-      ctx.arc(this.x + 5, this.y - TANK_HEIGHT * 0.9, 8 + Math.cos(this.idleTime) * 2, 0, Math.PI * 2);
+      ctx.ellipse(this.x + 2, this.y + 2, TANK_WIDTH / 2 - 5, 4, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Small fire flickers on wreckage
-      if (Math.random() > 0.5) {
-        const fireX = this.x + (Math.random() - 0.5) * TANK_WIDTH * 0.5;
-        const fireY = this.y - TANK_HEIGHT * 0.4;
-        ctx.fillStyle = 'rgba(255, 150, 50, 0.7)';
+      // Flattened/crushed body
+      ctx.fillStyle = '#444';
+      ctx.beginPath();
+      ctx.roundRect(this.x - TANK_WIDTH / 2 + 5, wreckY, TANK_WIDTH - 10, 8, 3);
+      ctx.fill();
+
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Bent barrel sticking out
+      ctx.fillStyle = '#555';
+      ctx.save();
+      ctx.translate(this.x + 5, wreckY + 2);
+      ctx.rotate(0.3);
+      ctx.beginPath();
+      ctx.roundRect(0, -3, 12, 6, 2);
+      ctx.fill();
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+
+      // Smoke puffs
+      const smokeOffset = Math.sin(this.idleTime * 2) * 2;
+      ctx.fillStyle = 'rgba(80, 80, 80, 0.5)';
+      ctx.beginPath();
+      ctx.arc(this.x - 5, wreckY - 8 + smokeOffset, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(this.x + 3, wreckY - 14 + smokeOffset * 0.7, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(this.x - 2, wreckY - 20 + smokeOffset * 0.5, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Small fire flickers
+      if (Math.random() > 0.4) {
+        const fireX = this.x + (Math.random() - 0.5) * 15;
+        ctx.fillStyle = `rgba(255, ${150 + Math.random() * 100}, 50, 0.8)`;
         ctx.beginPath();
-        ctx.arc(fireX, fireY, 3 + Math.random() * 2, 0, Math.PI * 2);
+        ctx.arc(fireX, wreckY - 2, 2 + Math.random() * 2, 0, Math.PI * 2);
         ctx.fill();
       }
     }
   }
 
-  // Helper to lighten a hex color
-  private lightenColor(hex: string, amount: number): string {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const r = Math.min(255, (num >> 16) + amount);
-    const g = Math.min(255, ((num >> 8) & 0x00FF) + amount);
-    const b = Math.min(255, (num & 0x0000FF) + amount);
-    return `rgb(${r}, ${g}, ${b})`;
+  // Helper to parse color from hex (#RRGGBB) or rgb(r, g, b) format
+  private parseColor(color: string): { r: number; g: number; b: number } {
+    // Check if it's rgb format
+    const rgbMatch = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (rgbMatch) {
+      return {
+        r: parseInt(rgbMatch[1], 10),
+        g: parseInt(rgbMatch[2], 10),
+        b: parseInt(rgbMatch[3], 10),
+      };
+    }
+    // Otherwise parse as hex
+    const num = parseInt(color.replace('#', ''), 16);
+    return {
+      r: (num >> 16) & 0xFF,
+      g: (num >> 8) & 0xFF,
+      b: num & 0xFF,
+    };
   }
 
-  // Helper to darken a hex color
-  private darkenColor(hex: string, amount: number): string {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const r = Math.max(0, (num >> 16) - amount);
-    const g = Math.max(0, ((num >> 8) & 0x00FF) - amount);
-    const b = Math.max(0, (num & 0x0000FF) - amount);
-    return `rgb(${r}, ${g}, ${b})`;
+  // Helper to lighten a color (supports hex and rgb formats)
+  private lightenColor(color: string, amount: number): string {
+    const { r, g, b } = this.parseColor(color);
+    return `rgb(${Math.min(255, r + amount)}, ${Math.min(255, g + amount)}, ${Math.min(255, b + amount)})`;
+  }
+
+  // Helper to darken a color (supports hex and rgb formats)
+  private darkenColor(color: string, amount: number): string {
+    const { r, g, b } = this.parseColor(color);
+    return `rgb(${Math.max(0, r - amount)}, ${Math.max(0, g - amount)}, ${Math.max(0, b - amount)})`;
   }
 }

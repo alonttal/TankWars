@@ -235,23 +235,43 @@ export class Terrain {
   }
 
   // Create explosion crater
-  createCrater(centerX: number, centerY: number, radius: number): void {
-    for (let x = Math.max(0, centerX - radius); x < Math.min(BASE_WIDTH, centerX + radius); x++) {
+  // depthMultiplier: 1.0 = normal, 4.0 = digger deep tunnel
+  createCrater(centerX: number, centerY: number, radius: number, depthMultiplier: number = 1.0): void {
+    // For digger weapons, create a narrower but deeper crater
+    const isDigger = depthMultiplier > 2.0;
+    const effectiveRadius = isDigger ? radius * 0.5 : radius;
+
+    for (let x = Math.max(0, centerX - effectiveRadius); x < Math.min(BASE_WIDTH, centerX + effectiveRadius); x++) {
       const dx = x - centerX;
-      const craterDepth = Math.sqrt(radius * radius - dx * dx);
+      const distanceRatio = Math.abs(dx) / effectiveRadius;
+
+      let craterDepth: number;
+      if (isDigger) {
+        // Digger creates a steep-sided tunnel shape
+        // More vertical walls, deeper center
+        craterDepth = Math.sqrt(Math.max(0, effectiveRadius * effectiveRadius - dx * dx)) * depthMultiplier * 0.5;
+        // Add extra depth at center for tunnel effect
+        if (distanceRatio < 0.3) {
+          craterDepth *= 1.5;
+        }
+      } else {
+        // Normal crater shape
+        craterDepth = Math.sqrt(radius * radius - dx * dx) * 0.7 * depthMultiplier;
+      }
 
       // Only affect terrain if explosion is at or below terrain level
       const terrainY = BASE_HEIGHT - this.heightMap[Math.floor(x)];
       if (centerY >= terrainY - radius) {
         // Calculate how much to lower the terrain
-        const newTerrainHeight = this.heightMap[Math.floor(x)] - craterDepth * 0.7;
-        this.heightMap[Math.floor(x)] = Math.max(BASE_HEIGHT * 0.1, newTerrainHeight);
+        const newTerrainHeight = this.heightMap[Math.floor(x)] - craterDepth;
+        this.heightMap[Math.floor(x)] = Math.max(BASE_HEIGHT * 0.05, newTerrainHeight);
       }
     }
     this.grassNeedsRedraw = true;
 
-    // Add scorch mark at explosion location
-    this.addScorchMark(centerX, centerY, radius * 1.5);
+    // Add scorch mark at explosion location (smaller for digger)
+    const scorchRadius = isDigger ? radius * 0.8 : radius * 1.5;
+    this.addScorchMark(centerX, centerY, scorchRadius);
   }
 
   // Add a scorch mark at the specified location
@@ -476,21 +496,6 @@ export class Terrain {
     // Draw scattered rocks
     this.drawRocks(ctx);
 
-    // Add subtle texture noise
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-    for (let x = 0; x < BASE_WIDTH; x += 8) {
-      for (let y = BASE_HEIGHT - 100; y < BASE_HEIGHT; y += 8) {
-        const terrainY = BASE_HEIGHT - this.heightMap[Math.min(x, BASE_WIDTH - 1)];
-        if (y > terrainY + 10) {
-          if (Math.random() > 0.7) {
-            ctx.beginPath();
-            ctx.arc(x + Math.random() * 4, y + Math.random() * 4, 1 + Math.random() * 2, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      }
-    }
-
     // Add highlight on terrain edge
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.lineWidth = 1;
@@ -502,44 +507,8 @@ export class Terrain {
     ctx.stroke();
   }
 
-  private renderScorchMarks(ctx: CanvasRenderingContext2D): void {
-    for (const scorch of this.scorchMarks) {
-      ctx.save();
-      ctx.translate(scorch.x, scorch.y);
-      ctx.rotate(scorch.rotation);
-
-      // Create gradient for scorch mark
-      const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, scorch.radius);
-      gradient.addColorStop(0, `rgba(20, 15, 10, ${scorch.opacity})`);
-      gradient.addColorStop(0.3, `rgba(35, 25, 15, ${scorch.opacity * 0.8})`);
-      gradient.addColorStop(0.6, `rgba(50, 35, 20, ${scorch.opacity * 0.5})`);
-      gradient.addColorStop(1, 'rgba(60, 40, 25, 0)');
-
-      // Draw elliptical scorch mark
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, scorch.radius, scorch.radius * 0.6, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Add some irregular edges/splatters
-      ctx.fillStyle = `rgba(25, 20, 15, ${scorch.opacity * 0.5})`;
-      for (let i = 0; i < 5; i++) {
-        const angle = (i / 5) * Math.PI * 2 + scorch.rotation;
-        const dist = scorch.radius * (0.7 + Math.random() * 0.4);
-        const size = 3 + Math.random() * 5;
-        ctx.beginPath();
-        ctx.arc(
-          Math.cos(angle) * dist,
-          Math.sin(angle) * dist * 0.6,
-          size,
-          0,
-          Math.PI * 2
-        );
-        ctx.fill();
-      }
-
-      ctx.restore();
-    }
+  private renderScorchMarks(_ctx: CanvasRenderingContext2D): void {
+    // Scorch marks disabled
   }
 
   private drawRocks(ctx: CanvasRenderingContext2D): void {

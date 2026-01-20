@@ -5,6 +5,12 @@ import { Projectile } from './Projectile.ts';
 import { Explosion } from './Explosion.ts';
 import { TankAI, AIDifficulty } from './AI.ts';
 import { soundManager } from './Sound.ts';
+import { WeaponType } from './weapons/WeaponTypes.ts';
+import { BurnArea } from './weapons/BurnArea.ts';
+import { PowerUpManager } from './powerups/PowerUpManager.ts';
+import { POWERUP_CONFIGS } from './powerups/PowerUpTypes.ts';
+import { WeaponSelector } from './ui/WeaponSelector.ts';
+import { BuffIndicator } from './ui/BuffIndicator.ts';
 
 type GameState = 'MENU' | 'PLAYING' | 'AI_THINKING' | 'FIRING' | 'PAUSED' | 'SETTINGS' | 'GAME_OVER';
 type GameMode = 'single' | 'multi';
@@ -70,7 +76,6 @@ export class Game {
   private ctx: CanvasRenderingContext2D;
   private terrain: Terrain;
   private tanks: Tank[];
-  private projectile: Projectile | null;
   private explosions: Explosion[];
   private currentPlayerIndex: number;
   private wind: number;
@@ -163,6 +168,13 @@ export class Game {
   private menuItemsSlideIn: number[];
   private gameOverSlideIn: number;
 
+  // Weapon and Power-up systems
+  private projectiles: Projectile[]; // Multiple projectiles for cluster/double shot
+  private burnAreas: BurnArea[];
+  private powerUpManager: PowerUpManager;
+  private weaponSelector: WeaponSelector;
+  private buffIndicator: BuffIndicator;
+
   constructor() {
     this.canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 
@@ -176,7 +188,6 @@ export class Game {
 
     this.terrain = new Terrain();
     this.tanks = [];
-    this.projectile = null;
     this.explosions = [];
     this.currentPlayerIndex = 0;
     this.wind = 0;
@@ -217,13 +228,33 @@ export class Game {
     this.menuItemsSlideIn = [];
     this.gameOverSlideIn = 0;
 
+    // Initialize weapon and power-up systems
+    this.projectiles = [];
+    this.burnAreas = [];
+    this.powerUpManager = new PowerUpManager();
+    this.weaponSelector = new WeaponSelector();
+    this.buffIndicator = new BuffIndicator();
+
+    // Setup weapon selector callback
+    this.weaponSelector.setOnWeaponSelect((weapon: WeaponType) => {
+      if (this.state === 'PLAYING' && !this.isAITurn()) {
+        const tank = this.tanks[this.currentPlayerIndex];
+        if (tank && tank.selectWeapon(weapon)) {
+          this.weaponSelector.update(tank);
+          soundManager.playMenuSelect();
+        }
+      }
+    });
+
+    // Initially hide weapon selector and buff indicator
+    this.weaponSelector.hide();
+    this.buffIndicator.hide();
+
     // Menu setup
     this.selectedMenuItem = 0;
     this.menuItems = [
-      { label: '1 PLAYER (vs CPU)', action: () => this.startGame('single', 'medium') },
-      { label: '2 PLAYERS', action: () => this.startGame('multi') },
-      { label: '1P EASY', action: () => this.startGame('single', 'easy') },
-      { label: '1P HARD', action: () => this.startGame('single', 'hard') },
+      { label: 'SINGLE PLAYER', action: () => this.startGame('single', 'medium') },
+      { label: 'MULTIPLAYER', action: () => this.startGame('multi') },
     ];
 
     // Pause menu setup
@@ -442,6 +473,9 @@ export class Game {
     this.state = 'MENU';
     this.selectedMenuItem = 0;
     soundManager.stopMusic();
+    // Hide UI elements
+    this.weaponSelector.hide();
+    this.buffIndicator.hide();
     // Reset menu animations
     this.menuTitlePulse = 0;
     this.menuItemsSlideIn = [];
@@ -600,12 +634,6 @@ export class Game {
       tank.update(effectiveDelta);
     }
 
-    // Calculate trajectory preview during PLAYING state
-    if (this.state === 'PLAYING' && !this.isAITurn()) {
-      this.calculateTrajectory();
-    } else {
-      this.trajectoryPoints = [];
-    }
 
     // Update turn banner fade
     if (this.turnBannerTimer > 0) {
@@ -655,80 +683,87 @@ export class Game {
     }
 
     if (this.state === 'FIRING') {
-      // Update projectile
-      if (this.projectile) {
-        const result = this.projectile.update(effectiveDelta, this.terrain, this.tanks, this.wind);
+      // Update all projectiles
+      const newProjectiles: Projectile[] = [];
+      let anyActiveProjectile = false;
+      let cameraFollowProjectile: Projectile | null = null;
 
-        // Camera follows projectile with slight lag
-        if (this.projectile.active) {
-          this.targetCameraOffsetX = (BASE_WIDTH / 2 - this.projectile.x) * 0.15;
-          this.targetCameraOffsetY = (BASE_HEIGHT / 2 - this.projectile.y) * 0.15;
-          this.targetCameraZoom = 1.05; // Slight zoom while projectile is flying
+      for (const projectile of this.projectiles) {
+        const result = projectile.update(effectiveDelta, this.terrain, this.tanks, this.wind);
+
+        // Track if any projectile is still active for camera
+        if (projectile.active) {
+          anyActiveProjectile = true;
+          cameraFollowProjectile = projectile;
         }
 
-        if (!result.active) {
-          if (result.hit) {
-            // Track health before explosion
-            const healthBefore = this.tanks.map(t => t.health);
-            const shooterIndex = this.projectile.owner.playerIndex;
+        // Handle cluster bomb splitting
+        if (result.shouldCluster) {
+          const weaponConfig = projectile.weaponConfig;
+          soundManager.playClusterSplit(); // Cluster split sound
 
-            // Create explosion
-            const explosion = new Explosion(result.hitX, result.hitY);
-            explosion.applyDamage(this.tanks, this.terrain, this.projectile.owner);
-            this.explosions.push(explosion);
-            soundManager.playExplosion();
+          // Spawn cluster bomblets
+          for (let i = 0; i < weaponConfig.clusterCount; i++) {
+            const spreadAngle = ((i / weaponConfig.clusterCount) * Math.PI * 2) - Math.PI / 2;
+            const spreadSpeed = 50 + Math.random() * 30;
 
-            // Trigger hitstop for impact feel
-            this.triggerHitstop(0.08);
+            // Create bomblet config (smaller explosion, cluster damage)
+            const bombletConfig = { ...weaponConfig };
+            bombletConfig.damage = weaponConfig.clusterDamage;
+            bombletConfig.explosionRadius = 20;
 
-            // Stronger screen shake on impact
-            this.triggerScreenShake(18); // Stronger shake
-            this.triggerScreenFlash('#FFA500', 0.5); // Stronger orange flash on impact
+            const bomblet = new Projectile(
+              result.clusterX,
+              result.clusterY,
+              0, // Angle doesn't matter, we set velocity directly
+              0,
+              this.wind,
+              projectile.owner,
+              bombletConfig,
+              true // isClusterBomblet
+            );
 
-            // Reset camera on impact
-            this.targetCameraZoom = 1;
-            this.targetCameraOffsetX = 0;
-            this.targetCameraOffsetY = 0;
+            // Override velocity for spread pattern
+            bomblet.vx = result.clusterVx + Math.cos(spreadAngle) * spreadSpeed;
+            bomblet.vy = result.clusterVy + Math.sin(spreadAngle) * spreadSpeed - 30;
 
-            // Track damage dealt and hits
-            let totalDamage = 0;
-            let hitCount = 0;
-            for (let i = 0; i < this.tanks.length; i++) {
-              if (i !== shooterIndex) {
-                const damage = healthBefore[i] - this.tanks[i].health;
-                if (damage > 0) {
-                  totalDamage += damage;
-                  hitCount++;
-
-                  // Spawn floating damage number
-                  const isCritical = damage >= 40;
-                  this.floatingTexts.push({
-                    x: this.tanks[i].x,
-                    y: this.tanks[i].y - 40,
-                    text: isCritical ? `CRITICAL! -${damage}` : `-${damage}`,
-                    color: isCritical ? '#FF0000' : '#FF6B6B',
-                    life: isCritical ? 2.0 : 1.5,
-                    maxLife: isCritical ? 2.0 : 1.5,
-                    vy: isCritical ? -50 : -30,
-                    scale: isCritical ? 1.5 : 1.0,
-                    isCritical,
-                  });
-                }
-              }
-            }
-            if (hitCount > 0) {
-              this.playerStats[shooterIndex].hits++;
-            }
-            this.playerStats[shooterIndex].damageDealt += totalDamage;
-          } else {
-            // Missed - reset camera
-            this.targetCameraZoom = 1;
-            this.targetCameraOffsetX = 0;
-            this.targetCameraOffsetY = 0;
+            newProjectiles.push(bomblet);
           }
-          this.projectile = null;
+        }
+
+        if (!result.active && result.hit) {
+          this.handleProjectileHit(projectile, result.hitX, result.hitY);
         }
       }
+
+      // Add new cluster bomblets to active projectiles
+      this.projectiles.push(...newProjectiles);
+
+      // Remove inactive projectiles (but keep them around for trail rendering)
+      this.projectiles = this.projectiles.filter(p =>
+        p.active ||
+        p.trail.length > 0 ||
+        p.trailParticles.length > 0 ||
+        p.impactParticles.length > 0
+      );
+
+      // Camera follows active projectile with slight lag
+      if (cameraFollowProjectile) {
+        this.targetCameraOffsetX = (BASE_WIDTH / 2 - cameraFollowProjectile.x) * 0.15;
+        this.targetCameraOffsetY = (BASE_HEIGHT / 2 - cameraFollowProjectile.y) * 0.15;
+        this.targetCameraZoom = 1.05;
+      } else if (!anyActiveProjectile) {
+        // Reset camera when no active projectiles
+        this.targetCameraZoom = 1;
+        this.targetCameraOffsetX = 0;
+        this.targetCameraOffsetY = 0;
+      }
+
+      // Update burn areas
+      for (const burnArea of this.burnAreas) {
+        burnArea.update(effectiveDelta, this.tanks, this.terrain);
+      }
+      this.burnAreas = this.burnAreas.filter(b => !b.isComplete());
 
       // Update explosions
       for (const explosion of this.explosions) {
@@ -748,11 +783,113 @@ export class Game {
       this.updateConfetti(effectiveDelta);
       this.updateFireworks(effectiveDelta);
 
-      // Check if firing phase is complete
-      if (!this.projectile && this.explosions.length === 0) {
+      // Check if firing phase is complete (no active projectiles, no explosions, no burn areas)
+      const hasActiveProjectiles = this.projectiles.some(p => p.active);
+      if (!hasActiveProjectiles && this.explosions.length === 0 && this.burnAreas.length === 0) {
         this.endTurn();
       }
     }
+
+    // Update power-ups (even when not firing)
+    if (this.state === 'PLAYING' || this.state === 'FIRING') {
+      const collected = this.powerUpManager.update(effectiveDelta, this.tanks);
+      if (collected) {
+        soundManager.playPowerUpCollect(); // Power-up collection sound
+        this.buffIndicator.update(collected.tank);
+
+        // Show floating text for power-up
+        const config = POWERUP_CONFIGS[collected.type];
+        this.floatingTexts.push({
+          x: collected.tank.x,
+          y: collected.tank.y - 50,
+          text: `+${config.name}`,
+          color: config.color,
+          life: 1.5,
+          maxLife: 1.5,
+          vy: -40,
+          scale: 1.2,
+          isCritical: false,
+        });
+      }
+    }
+  }
+
+  private handleProjectileHit(projectile: Projectile, hitX: number, hitY: number): void {
+    const weaponConfig = projectile.weaponConfig;
+
+    // Track health before explosion
+    const healthBefore = this.tanks.map(t => t.health);
+    const shooterIndex = projectile.owner.playerIndex;
+
+    // Get damage multiplier from shooter's buffs
+    const damageMultiplier = projectile.owner.getDamageMultiplier();
+    const finalDamage = Math.floor(weaponConfig.damage * damageMultiplier);
+
+    // Create explosion with weapon-specific parameters
+    const explosion = new Explosion(hitX, hitY, weaponConfig.explosionRadius, finalDamage);
+    explosion.applyDamageWithConfig(
+      this.tanks,
+      this.terrain,
+      projectile.owner,
+      weaponConfig.explosionRadius,
+      finalDamage,
+      weaponConfig.craterDepthMultiplier
+    );
+    this.explosions.push(explosion);
+    soundManager.playExplosion();
+
+    // Consume damage boost after hit
+    projectile.owner.consumeDamageBoost();
+
+    // Create burn area for napalm
+    if (weaponConfig.type === 'napalm') {
+      this.burnAreas.push(new BurnArea(
+        hitX,
+        hitY,
+        weaponConfig.explosionRadius,
+        weaponConfig.burnDuration,
+        weaponConfig.burnDamagePerSecond
+      ));
+    }
+
+    // Trigger hitstop for impact feel
+    this.triggerHitstop(0.08);
+
+    // Screen shake proportional to explosion size
+    const shakeIntensity = 10 + (weaponConfig.explosionRadius / 35) * 8;
+    this.triggerScreenShake(shakeIntensity);
+    this.triggerScreenFlash('#FFA500', 0.5);
+
+    // Track damage dealt and hits
+    let totalDamage = 0;
+    let hitCount = 0;
+    for (let i = 0; i < this.tanks.length; i++) {
+      if (i !== shooterIndex) {
+        const damage = healthBefore[i] - this.tanks[i].health;
+        if (damage > 0) {
+          totalDamage += damage;
+          hitCount++;
+
+          // Spawn floating damage number
+          const isCritical = damage >= 40;
+          this.floatingTexts.push({
+            x: this.tanks[i].x,
+            y: this.tanks[i].y - 40,
+            text: isCritical ? `CRITICAL! -${damage}` : `-${damage}`,
+            color: isCritical ? '#FF0000' : '#FF6B6B',
+            life: isCritical ? 2.0 : 1.5,
+            maxLife: isCritical ? 2.0 : 1.5,
+            vy: isCritical ? -50 : -30,
+            scale: isCritical ? 1.5 : 1.0,
+            isCritical,
+          });
+        }
+      }
+    }
+    if (hitCount > 0) {
+      this.playerStats[shooterIndex].hits++;
+    }
+    this.playerStats[shooterIndex].damageDealt += totalDamage;
   }
 
   private render(): void {
@@ -785,10 +922,6 @@ export class Game {
     // Render terrain
     this.terrain.render(this.ctx);
 
-    // Render trajectory preview (behind tanks)
-    if (this.state === 'PLAYING' && !this.isAITurn()) {
-      this.renderTrajectory();
-    }
 
     // Render tanks
     for (let i = 0; i < this.tanks.length; i++) {
@@ -802,9 +935,17 @@ export class Game {
       this.renderPowerMeter();
     }
 
-    // Render projectile
-    if (this.projectile) {
-      this.projectile.render(this.ctx);
+    // Render power-ups
+    this.powerUpManager.render(this.ctx);
+
+    // Render burn areas (behind projectiles)
+    for (const burnArea of this.burnAreas) {
+      burnArea.render(this.ctx);
+    }
+
+    // Render all projectiles
+    for (const projectile of this.projectiles) {
+      projectile.render(this.ctx);
     }
 
     // Render explosions
@@ -1280,14 +1421,18 @@ export class Game {
   private startGame(mode: GameMode, aiDifficulty?: AIDifficulty): void {
     this.gameMode = mode;
     this.tanks = [];
-    this.projectile = null;
+    this.projectiles = [];
     this.explosions = [];
     this.floatingTexts = [];
+    this.burnAreas = [];
     this.currentPlayerIndex = 0;
     this.winner = null;
     this.isChargingPower = false;
     this.powerDirection = 1;
     this.turnTimeRemaining = this.maxTurnTime;
+
+    // Clear power-ups
+    this.powerUpManager.clear();
 
     // Setup AI for single player
     if (mode === 'single' && aiDifficulty) {
@@ -1307,6 +1452,7 @@ export class Game {
       const pos = this.terrain.getSpawnPosition(i, numPlayers);
       const facingRight = i < numPlayers / 2;
       const tank = new Tank(pos.x, pos.y, PLAYER_COLORS[i], i, facingRight);
+      tank.resetWeaponsAndBuffs(); // Ensure weapons/buffs are reset
       this.tanks.push(tank);
       this.playerStats.push({ shotsFired: 0, hits: 0, damageDealt: 0 });
       this.hudHealthAnimations.push({ current: 100, target: 100 });
@@ -1324,6 +1470,13 @@ export class Game {
     this.updateUI();
     this.state = 'PLAYING';
     this.fireButton.disabled = false;
+
+    // Show UI elements
+    this.weaponSelector.show();
+    this.buffIndicator.show();
+    this.weaponSelector.update(firstTank);
+    this.buffIndicator.update(firstTank);
+    this.weaponSelector.setEnabled(true);
 
     // Show initial turn banner
     const turnText = this.gameMode === 'single' ? 'YOUR TURN' : 'PLAYER 1 TURN';
@@ -1350,16 +1503,41 @@ export class Game {
 
     const angle = parseInt(this.angleSlider.value);
     const power = (parseInt(this.powerSlider.value) / 100) * MAX_POWER;
+    const weaponConfig = tank.getSelectedWeaponConfig();
+
+    // Clear existing projectiles
+    this.projectiles = [];
 
     const barrelEnd = tank.getBarrelEnd();
-    this.projectile = new Projectile(
-      barrelEnd.x,
-      barrelEnd.y,
-      angle,
-      power,
-      this.wind,
-      tank
-    );
+
+    // Check for double shot buff
+    const shotCount = tank.hasDoubleShot() ? 2 : 1;
+
+    for (let i = 0; i < shotCount; i++) {
+      // Slight angle variation for double shot
+      const shotAngle = shotCount > 1 ? angle + (i === 0 ? -5 : 5) : angle;
+
+      const projectile = new Projectile(
+        barrelEnd.x,
+        barrelEnd.y,
+        shotAngle,
+        power,
+        this.wind,
+        tank,
+        weaponConfig
+      );
+      this.projectiles.push(projectile);
+    }
+
+    // Use ammo and consume buffs
+    tank.useAmmo();
+    if (shotCount > 1) {
+      tank.consumeDoubleShot();
+    }
+
+    // Update weapon selector to show new ammo counts
+    this.weaponSelector.update(tank);
+    this.buffIndicator.update(tank);
 
     // Trigger muzzle flash and recoil
     tank.fire();
@@ -1371,6 +1549,7 @@ export class Game {
 
     this.state = 'FIRING';
     this.fireButton.disabled = true;
+    this.weaponSelector.setEnabled(false);
     soundManager.playShoot();
 
     // Track shot fired
@@ -1384,6 +1563,12 @@ export class Game {
     const playerTank = this.tanks[0];
 
     if (!aiTank.isAlive || !playerTank.isAlive) return;
+
+    // AI selects weapon based on situation
+    this.ai.selectWeapon(aiTank, playerTank);
+
+    // Update weapon selector to show AI's weapon choice
+    this.weaponSelector.update(aiTank);
 
     // Calculate shot
     this.aiShot = this.ai.calculateShot(aiTank, playerTank, this.wind);
@@ -1408,18 +1593,31 @@ export class Game {
     const tank = this.tanks[this.currentPlayerIndex];
     const angle = this.aiShot.angle;
     const power = (this.aiShot.power / 100) * MAX_POWER;
+    const weaponConfig = tank.getSelectedWeaponConfig();
 
     tank.angle = angle;
 
+    // Clear existing projectiles
+    this.projectiles = [];
+
     const barrelEnd = tank.getBarrelEnd();
-    this.projectile = new Projectile(
+    const projectile = new Projectile(
       barrelEnd.x,
       barrelEnd.y,
       angle,
       power,
       this.wind,
-      tank
+      tank,
+      weaponConfig
     );
+    this.projectiles.push(projectile);
+
+    // Use ammo
+    tank.useAmmo();
+
+    // Update UI
+    this.weaponSelector.update(tank);
+    this.buffIndicator.update(tank);
 
     // Trigger muzzle flash and recoil
     tank.fire();
@@ -1446,6 +1644,10 @@ export class Game {
       this.state = 'GAME_OVER';
       this.fireButton.disabled = true;
 
+      // Hide weapon selector and buff indicator
+      this.weaponSelector.hide();
+      this.buffIndicator.hide();
+
       // Spawn victory confetti and fireworks
       if (this.winner) {
         this.spawnConfetti();
@@ -1460,6 +1662,9 @@ export class Game {
       return;
     }
 
+    // Try to spawn a power-up between turns
+    this.powerUpManager.trySpawn(this.terrain, this.tanks);
+
     // Change wind slightly
     this.wind += (Math.random() - 0.5) * 10;
     this.wind = Math.max(-WIND_STRENGTH_MAX, Math.min(WIND_STRENGTH_MAX, this.wind));
@@ -1467,6 +1672,12 @@ export class Game {
 
     // Next player
     this.nextPlayer();
+
+    // Update UI for new player
+    const currentTank = this.tanks[this.currentPlayerIndex];
+    this.weaponSelector.update(currentTank);
+    this.buffIndicator.update(currentTank);
+    this.weaponSelector.setEnabled(true);
 
     // Check if it's AI's turn
     if (this.isAITurn()) {

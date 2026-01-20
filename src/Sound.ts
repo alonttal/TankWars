@@ -573,6 +573,90 @@ export class SoundManager {
       });
     }
   }
+
+  // Bounce sound for bouncer weapon
+  playBounce(): void {
+    if (!this.enabled) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const volume = this.getEffectiveVolume(0.3, false);
+
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    // Metallic ping sound
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(800, now);
+    osc.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+
+    gainNode.gain.setValueAtTime(volume, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
+
+  // Power-up collection sound
+  playPowerUpCollect(): void {
+    if (!this.enabled) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const volume = this.getEffectiveVolume(0.3, false);
+
+    // Ascending magical chime
+    const notes = [523, 659, 784, 1047]; // C5, E5, G5, C6
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.06);
+
+      gain.gain.setValueAtTime(0, now + i * 0.06);
+      gain.gain.linearRampToValueAtTime(volume, now + i * 0.06 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.06 + 0.15);
+
+      osc.start(now + i * 0.06);
+      osc.stop(now + i * 0.06 + 0.15);
+    });
+  }
+
+  // Cluster bomb split sound
+  playClusterSplit(): void {
+    if (!this.enabled) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const volume = this.getEffectiveVolume(0.25, false);
+
+    // Pop sound
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+
+    gainNode.gain.setValueAtTime(volume, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+    osc.start(now);
+    osc.stop(now + 0.1);
+  }
 }
 
 // Global sound manager instance
