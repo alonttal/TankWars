@@ -132,6 +132,14 @@ interface ScorchMark {
   rotation: number;
 }
 
+interface FloatingPlatform {
+  x: number;           // Left edge x position
+  y: number;           // Y position baseline (from top of map)
+  width: number;       // Platform width
+  topOffset: number[]; // Distance from y to top surface at each x (0 = surface at y)
+  bottomOffset: number[]; // Distance from y to bottom surface at each x
+}
+
 export class Terrain {
   // Height map - stores the terrain height at each x position
   private heightMap: number[];
@@ -158,6 +166,9 @@ export class Terrain {
   // Current terrain theme
   private theme: TerrainTheme;
 
+  // Floating platforms
+  private floatingPlatforms: FloatingPlatform[];
+
   constructor() {
     this.heightMap = new Array(MAP_WIDTH).fill(0);
     this.clouds = [];
@@ -169,6 +180,7 @@ export class Terrain {
     this.sunPulse = 0;
     this.scorchMarks = [];
     this.theme = TERRAIN_THEMES[0];
+    this.floatingPlatforms = [];
     this.generateClouds();
     this.generateAmbientDust();
   }
@@ -228,6 +240,60 @@ export class Terrain {
 
     // Smooth the terrain
     this.smooth(3);
+
+    // Generate floating platforms
+    this.generateFloatingPlatforms();
+  }
+
+  private generateFloatingPlatforms(): void {
+    this.floatingPlatforms = [];
+
+    // Generate 3-5 floating platforms
+    const platformCount = 3 + Math.floor(Math.random() * 3);
+
+    // Divide map into sections to spread platforms out
+    const sectionWidth = MAP_WIDTH / (platformCount + 1);
+
+    for (let i = 0; i < platformCount; i++) {
+      // Position platform in its section with some randomness
+      const sectionStart = sectionWidth * (i + 0.5);
+      const platformWidth = 200 + Math.random() * 250; // 200-450 pixels wide
+      const x = sectionStart - platformWidth / 2 + (Math.random() - 0.5) * sectionWidth * 0.5;
+
+      // Get the ground height at this position to place platform above it
+      const groundHeight = this.heightMap[Math.floor(Math.max(0, Math.min(MAP_WIDTH - 1, x + platformWidth / 2)))];
+      const groundY = MAP_HEIGHT - groundHeight;
+
+      // Place platform 150-350 pixels above the ground
+      const platformY = groundY - 200 - Math.random() * 200;
+
+      // Ensure platform isn't too high (leave space for sky)
+      const finalY = Math.max(MAP_HEIGHT - TERRAIN_MAX_HEIGHT - 300, platformY);
+
+      // Generate top and bottom offsets for the platform
+      const topOffset: number[] = [];
+      const bottomOffset: number[] = [];
+      const baseThickness = 25 + Math.random() * 15; // Platform thickness 25-40
+
+      for (let px = 0; px < platformWidth; px++) {
+        // Create a slight curve - thicker in middle, tapered at edges
+        const edgeDist = Math.min(px, platformWidth - px);
+        const edgeFactor = Math.max(0.3, Math.min(1, edgeDist / 40)); // Taper but keep min 30% thickness
+        const variation = Math.sin(px * 0.05) * 5; // Gentle wave
+        const thickness = (baseThickness + variation) * edgeFactor;
+
+        topOffset.push(0); // Top surface starts at y
+        bottomOffset.push(thickness); // Bottom surface at y + thickness
+      }
+
+      this.floatingPlatforms.push({
+        x: Math.max(50, Math.min(MAP_WIDTH - platformWidth - 50, x)),
+        y: finalY,
+        width: platformWidth,
+        topOffset,
+        bottomOffset
+      });
+    }
   }
 
   private midpointDisplacement(left: number, right: number, displacement: number): void {
@@ -260,7 +326,65 @@ export class Terrain {
 
   getHeightAt(x: number): number {
     const index = Math.floor(Math.max(0, Math.min(MAP_WIDTH - 1, x)));
+    const groundHeight = this.heightMap[index];
+
+    // Check floating platforms - return the highest surface
+    let maxHeight = groundHeight;
+
+    for (const platform of this.floatingPlatforms) {
+      if (x >= platform.x && x < platform.x + platform.width) {
+        const px = Math.floor(x - platform.x);
+        if (px >= 0 && px < platform.topOffset.length) {
+          // Only consider if platform has thickness at this point
+          const thickness = platform.bottomOffset[px] - platform.topOffset[px];
+          if (thickness > 0) {
+            // Platform top surface Y position, converted to height from bottom
+            const platformSurfaceY = platform.y + platform.topOffset[px];
+            const platformHeight = MAP_HEIGHT - platformSurfaceY;
+            if (platformHeight > maxHeight) {
+              maxHeight = platformHeight;
+            }
+          }
+        }
+      }
+    }
+
+    return maxHeight;
+  }
+
+  // Get ground height only (ignoring floating platforms)
+  getGroundHeightAt(x: number): number {
+    const index = Math.floor(Math.max(0, Math.min(MAP_WIDTH - 1, x)));
     return this.heightMap[index];
+  }
+
+  // Check if a world position collides with terrain (ground or platforms)
+  isPointInTerrain(x: number, y: number): boolean {
+    // Check main ground
+    const groundY = MAP_HEIGHT - this.getGroundHeightAt(x);
+    if (y >= groundY) return true;
+
+    // Check floating platforms
+    for (const platform of this.floatingPlatforms) {
+      if (x >= platform.x && x < platform.x + platform.width) {
+        const px = Math.floor(x - platform.x);
+        if (px >= 0 && px < platform.topOffset.length) {
+          const platformTop = platform.y + platform.topOffset[px];
+          const platformBottom = platform.y + platform.bottomOffset[px];
+          // Only collide if there's actual thickness at this point
+          if (platformBottom > platformTop && y >= platformTop && y <= platformBottom) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // Get the list of floating platforms (for spawn positioning)
+  getFloatingPlatforms(): FloatingPlatform[] {
+    return this.floatingPlatforms;
   }
 
   update(deltaTime: number, wind: number = 0): void {
@@ -338,6 +462,7 @@ export class Terrain {
     const isDigger = depthMultiplier > 2.0;
     const effectiveRadius = isDigger ? radius * 0.5 : radius;
 
+    // Affect main ground terrain
     for (let x = Math.max(0, centerX - effectiveRadius); x < Math.min(MAP_WIDTH, centerX + effectiveRadius); x++) {
       const dx = x - centerX;
       const distanceRatio = Math.abs(dx) / effectiveRadius;
@@ -364,6 +489,75 @@ export class Terrain {
         this.heightMap[Math.floor(x)] = Math.max(TERRAIN_MIN_HEIGHT * 0.3, newTerrainHeight);
       }
     }
+
+    // Affect floating platforms
+    for (const platform of this.floatingPlatforms) {
+      // Check if explosion is near this platform
+      const platformLeft = platform.x;
+      const platformRight = platform.x + platform.width;
+
+      // Skip if explosion is too far horizontally
+      if (centerX + effectiveRadius < platformLeft || centerX - effectiveRadius > platformRight) continue;
+
+      // Carve crater into platform
+      for (let px = 0; px < platform.width; px++) {
+        const worldX = platform.x + px;
+        const dx = worldX - centerX;
+
+        if (Math.abs(dx) > effectiveRadius) continue;
+
+        const platformTop = platform.y + platform.topOffset[px];
+        const platformBottom = platform.y + platform.bottomOffset[px];
+        const platformMidY = (platformTop + platformBottom) / 2;
+
+        // Skip if no thickness at this point
+        if (platformBottom <= platformTop) continue;
+
+        // Check if explosion is close enough vertically
+        const dyToTop = platformTop - centerY;
+        const dyToBottom = platformBottom - centerY;
+
+        // Calculate distance to nearest surface
+        let distance: number;
+        if (centerY < platformTop) {
+          distance = Math.sqrt(dx * dx + dyToTop * dyToTop);
+        } else if (centerY > platformBottom) {
+          distance = Math.sqrt(dx * dx + dyToBottom * dyToBottom);
+        } else {
+          distance = Math.abs(dx); // Inside platform horizontally
+        }
+
+        if (distance < effectiveRadius) {
+          // Calculate how much to carve
+          let carveAmount: number;
+          if (isDigger) {
+            carveAmount = Math.sqrt(Math.max(0, effectiveRadius * effectiveRadius - dx * dx)) * depthMultiplier * 0.5;
+          } else {
+            carveAmount = Math.sqrt(Math.max(0, radius * radius - dx * dx)) * 0.7 * depthMultiplier;
+          }
+
+          // Determine carve direction based on where the explosion is
+          if (centerY <= platformMidY) {
+            // Hit from above - carve into top surface
+            platform.topOffset[px] = Math.min(platform.bottomOffset[px], platform.topOffset[px] + carveAmount);
+          } else {
+            // Hit from below - carve into bottom surface
+            platform.bottomOffset[px] = Math.max(platform.topOffset[px], platform.bottomOffset[px] - carveAmount);
+          }
+        }
+      }
+    }
+
+    // Remove platforms that are completely destroyed (no thickness remaining)
+    this.floatingPlatforms = this.floatingPlatforms.filter(platform => {
+      // Check if any part of the platform still has thickness
+      for (let px = 0; px < platform.width; px++) {
+        if (platform.bottomOffset[px] - platform.topOffset[px] > 3) {
+          return true; // Keep platform
+        }
+      }
+      return false; // Remove platform
+    });
 
     // Add scorch mark at explosion location (smaller for digger)
     const scorchRadius = isDigger ? radius * 0.8 : radius * 1.5;
@@ -530,6 +724,9 @@ export class Terrain {
     ctx.closePath();
     ctx.fill();
 
+    // Draw floating platforms
+    this.renderFloatingPlatforms(ctx);
+
     // Draw scorch marks from explosions
     this.renderScorchMarks(ctx);
 
@@ -545,6 +742,97 @@ export class Terrain {
       ctx.lineTo(x, MAP_HEIGHT - this.heightMap[x] - 1);
     }
     ctx.stroke();
+  }
+
+  private renderFloatingPlatforms(ctx: CanvasRenderingContext2D): void {
+    for (const platform of this.floatingPlatforms) {
+      const { x, y, width, topOffset, bottomOffset } = platform;
+
+      // Draw platform shadow (on ground below)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.beginPath();
+      ctx.ellipse(
+        x + width / 2,
+        MAP_HEIGHT - this.getGroundHeightAt(x + width / 2) + 5,
+        width * 0.4,
+        15,
+        0, 0, Math.PI * 2
+      );
+      ctx.fill();
+
+      // Draw platform using vertical slices for each pixel
+      for (let px = 0; px < width; px++) {
+        const top = topOffset[px];
+        const bottom = bottomOffset[px];
+        const thickness = bottom - top;
+
+        if (thickness <= 0) continue;
+
+        const worldX = x + px;
+        const topY = y + top;
+
+        // Layer 1: Deep rock (bottom portion)
+        ctx.fillStyle = this.theme.deepRock;
+        ctx.fillRect(worldX, topY, 1, thickness);
+
+        // Layer 2: Dark soil (upper 75%)
+        if (thickness > 4) {
+          ctx.fillStyle = this.theme.darkSoil;
+          ctx.fillRect(worldX, topY, 1, thickness * 0.75);
+        }
+
+        // Layer 3: Main soil (upper 50%)
+        if (thickness > 6) {
+          ctx.fillStyle = this.theme.mainSoil;
+          ctx.fillRect(worldX, topY, 1, thickness * 0.5);
+        }
+
+        // Layer 4: Top soil (upper 20%)
+        if (thickness > 8) {
+          ctx.fillStyle = this.theme.topSoil;
+          ctx.fillRect(worldX, topY, 1, thickness * 0.2);
+        }
+      }
+
+      // Draw highlight on top edge
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      let started = false;
+      for (let px = 0; px < width; px++) {
+        const thickness = bottomOffset[px] - topOffset[px];
+        if (thickness > 2) {
+          if (!started) {
+            ctx.moveTo(x + px, y + topOffset[px]);
+            started = true;
+          } else {
+            ctx.lineTo(x + px, y + topOffset[px]);
+          }
+        } else if (started) {
+          ctx.stroke();
+          ctx.beginPath();
+          started = false;
+        }
+      }
+      if (started) ctx.stroke();
+
+      // Draw some small rocks on platform
+      ctx.fillStyle = this.theme.rockColor;
+      for (let i = 0; i < 3; i++) {
+        const rockPx = Math.floor(30 + (i * (width - 60) / 2) + Math.sin(x + i) * 20);
+        if (rockPx > 10 && rockPx < width - 10 && rockPx < bottomOffset.length) {
+          const thickness = bottomOffset[rockPx] - topOffset[rockPx];
+          if (thickness > 5) {
+            const rockX = x + rockPx;
+            const rockY = y + topOffset[rockPx];
+            const rockSize = 3 + Math.abs(Math.sin(rockX * 0.1)) * 4;
+            ctx.beginPath();
+            ctx.arc(rockX, rockY - 1, rockSize, Math.PI, 0);
+            ctx.fill();
+          }
+        }
+      }
+    }
   }
 
   private renderScorchMarks(_ctx: CanvasRenderingContext2D): void {

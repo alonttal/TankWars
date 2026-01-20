@@ -201,9 +201,8 @@ export class Projectile {
       return { active: false, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
     }
 
-    // Check terrain collision
-    const terrainY = MAP_HEIGHT - terrain.getHeightAt(this.x);
-    if (this.y >= terrainY) {
+    // Check terrain collision (ground and floating platforms)
+    if (terrain.isPointInTerrain(this.x, this.y)) {
       this.active = false;
       // Spawn impact dust burst
       this.spawnImpactParticles(this.x, this.y);
