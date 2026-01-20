@@ -211,8 +211,8 @@ export class Game {
     this.screenFlashIntensity = 0;
     this.screenFlashColor = '#FFF';
     this.hitstopTimer = 0;
-    this.cameraZoom = 1;
-    this.targetCameraZoom = 1;
+    this.cameraZoom = 0.75;
+    this.targetCameraZoom = 0.75;
     this.cameraOffsetX = 0;
     this.cameraOffsetY = 0;
     this.targetCameraOffsetX = 0;
@@ -855,7 +855,7 @@ export class Game {
         );
         this.targetCameraOffsetX = clamped.x;
         this.targetCameraOffsetY = clamped.y;
-        this.targetCameraZoom = 1.05;
+        this.targetCameraZoom = 0.8; // Slight zoom in when following projectile
       } else if (!anyActiveProjectile) {
         // Return camera to current player's tank
         const currentAnt = this.ants[this.currentPlayerIndex];
@@ -867,7 +867,7 @@ export class Game {
           this.targetCameraOffsetX = clamped.x;
           this.targetCameraOffsetY = clamped.y;
         }
-        this.targetCameraZoom = 1;
+        this.targetCameraZoom = 0.75;
       }
 
       // Update burn areas
@@ -1081,7 +1081,7 @@ export class Game {
     const clamped = this.clampCameraOffset(offsetX, offsetY);
     this.targetCameraOffsetX = clamped.x;
     this.targetCameraOffsetY = clamped.y;
-    this.targetCameraZoom = 1;
+    this.targetCameraZoom = 0.75;
 
     // Snap immediately if requested (e.g., at game start)
     if (immediate) {
