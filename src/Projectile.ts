@@ -5,7 +5,7 @@ import {
   MAP_HEIGHT,
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
-import { Tank } from './Tank.ts';
+import { Ant } from './Ant.ts';
 import { WeaponConfig, WEAPON_CONFIGS } from './weapons/WeaponTypes.ts';
 
 export interface ProjectileState {
@@ -48,7 +48,7 @@ export class Projectile {
   vy: number;
   active: boolean;
   trail: { x: number; y: number }[];
-  owner: Tank;
+  owner: Ant;
   time: number; // For pulsing glow animation
   trailParticles: TrailParticle[];
   impactParticles: ImpactParticle[];
@@ -67,7 +67,7 @@ export class Projectile {
     angle: number,
     power: number,
     wind: number,
-    owner: Tank,
+    owner: Ant,
     weaponConfig: WeaponConfig = WEAPON_CONFIGS.standard,
     isClusterBomblet: boolean = false
   ) {
@@ -134,25 +134,7 @@ export class Projectile {
     }
   }
 
-  private spawnBounceParticles(x: number, y: number): void {
-    // Green bounce particles for bouncer
-    for (let i = 0; i < 10; i++) {
-      const angle = -Math.PI + Math.random() * Math.PI;
-      const speed = 30 + Math.random() * 50;
-      this.impactParticles.push({
-        x: x + (Math.random() - 0.5) * 10,
-        y: y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 20,
-        life: 0.3 + Math.random() * 0.2,
-        maxLife: 0.5,
-        size: 2 + Math.random() * 3,
-        color: '#44FF44',
-      });
-    }
-  }
-
-  update(deltaTime: number, terrain: Terrain, tanks: Tank[], wind: number): ProjectileState {
+  update(deltaTime: number, terrain: Terrain, ants: Ant[], wind: number): ProjectileState {
     if (!this.active) {
       // Still update trail and impact particles even when projectile is gone
       this.updateTrailParticles(deltaTime);
@@ -213,26 +195,6 @@ export class Projectile {
     this.x += this.vx * deltaTime;
     this.y += this.vy * deltaTime;
 
-    // Check for apex (cluster bomb splits here)
-    if (this.weaponConfig.type === 'cluster' && !this.isClusterBomblet && !this.hasReachedApex) {
-      // Apex is when vy changes from negative (going up) to positive (going down)
-      if (this.previousVy < 0 && this.vy >= 0) {
-        this.hasReachedApex = true;
-        this.active = false;
-        return {
-          active: false,
-          hit: false,
-          hitX: 0,
-          hitY: 0,
-          shouldCluster: true,
-          clusterX: this.x,
-          clusterY: this.y,
-          clusterVx: this.vx,
-          clusterVy: this.vy,
-        };
-      }
-    }
-
     // Check if out of bounds
     if (this.x < -50 || this.x > MAP_WIDTH + 50 || this.y > MAP_HEIGHT + 50) {
       this.active = false;
@@ -242,47 +204,18 @@ export class Projectile {
     // Check terrain collision
     const terrainY = MAP_HEIGHT - terrain.getHeightAt(this.x);
     if (this.y >= terrainY) {
-      // Bouncer weapon - bounce off terrain
-      if (this.weaponConfig.type === 'bouncer' && this.bouncesRemaining > 0) {
-        this.bouncesRemaining--;
-
-        // Calculate terrain normal for reflection
-        const terrainHeightLeft = terrain.getHeightAt(this.x - 2);
-        const terrainHeightRight = terrain.getHeightAt(this.x + 2);
-        const terrainSlope = (terrainHeightRight - terrainHeightLeft) / 4;
-        const normalAngle = Math.atan2(1, terrainSlope) - Math.PI / 2;
-
-        // Reflect velocity
-        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        const incomingAngle = Math.atan2(this.vy, this.vx);
-        const reflectedAngle = 2 * normalAngle - incomingAngle;
-
-        // Apply bounce with energy loss
-        const bounceFactor = 0.7;
-        this.vx = Math.cos(reflectedAngle) * speed * bounceFactor;
-        this.vy = Math.sin(reflectedAngle) * speed * bounceFactor;
-
-        // Move projectile above terrain
-        this.y = terrainY - 2;
-
-        // Spawn bounce particles
-        this.spawnBounceParticles(this.x, this.y);
-
-        return { active: true, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
-      }
-
       this.active = false;
       // Spawn impact dust burst
       this.spawnImpactParticles(this.x, this.y);
       return { active: false, hit: true, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
     }
 
-    // Check tank collision
-    for (const tank of tanks) {
-      if (!tank.isAlive || tank === this.owner) continue;
+    // Check ant collision
+    for (const ant of ants) {
+      if (!ant.isAlive || ant === this.owner) continue;
 
-      const dx = this.x - tank.x;
-      const dy = this.y - (tank.y - 10); // Approximate tank center
+      const dx = this.x - ant.x;
+      const dy = this.y - (ant.y - 10); // Approximate ant center
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance < 25) { // Hit radius
@@ -417,37 +350,6 @@ export class Projectile {
       ctx.beginPath();
       ctx.arc(this.x, this.y, baseRadius * 1.5, 0, Math.PI * 2);
       ctx.fill();
-
-      // Weapon-specific visuals
-      if (this.weaponConfig.type === 'bouncer') {
-        // Green ring indicator
-        ctx.strokeStyle = `rgba(100, 255, 100, ${0.5 + pulse * 0.3})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, baseRadius * 2, 0, Math.PI * 2);
-        ctx.stroke();
-      } else if (this.weaponConfig.type === 'cluster' && !this.isClusterBomblet) {
-        // Cluster indicator dots
-        for (let i = 0; i < 6; i++) {
-          const angle = (i / 6) * Math.PI * 2 + this.time * 3;
-          const dotX = this.x + Math.cos(angle) * baseRadius * 2.5;
-          const dotY = this.y + Math.sin(angle) * baseRadius * 2.5;
-          ctx.fillStyle = `rgba(255, 200, 100, ${0.6 * pulse})`;
-          ctx.beginPath();
-          ctx.arc(dotX, dotY, 2, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else if (this.weaponConfig.type === 'napalm') {
-        // Fire-like flickering effect
-        for (let i = 0; i < 3; i++) {
-          const flameX = this.x + (Math.random() - 0.5) * baseRadius * 2;
-          const flameY = this.y + (Math.random() - 0.5) * baseRadius * 2;
-          ctx.fillStyle = `rgba(255, ${100 + Math.random() * 100}, 0, ${0.6 * pulse})`;
-          ctx.beginPath();
-          ctx.arc(flameX, flameY, baseRadius * 0.5, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
     }
   }
 }

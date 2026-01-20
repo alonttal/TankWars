@@ -223,8 +223,8 @@ export class Terrain {
     this.heightMap[0] = minHeight + Math.random() * (maxHeight - minHeight);
     this.heightMap[MAP_WIDTH - 1] = minHeight + Math.random() * (maxHeight - minHeight);
 
-    // Midpoint displacement
-    this.midpointDisplacement(0, MAP_WIDTH - 1, 150);
+    // Midpoint displacement - larger displacement for bigger maps creates more dramatic terrain
+    this.midpointDisplacement(0, MAP_WIDTH - 1, 400);
 
     // Smooth the terrain
     this.smooth(3);
@@ -661,10 +661,10 @@ export class Terrain {
     }
   }
 
-  // Get a safe spawn position for a tank
-  getSpawnPosition(index: number, totalTanks: number): { x: number; y: number } {
-    // Distribute tanks evenly across the terrain
-    const spacing = MAP_WIDTH / (totalTanks + 1);
+  // Get a safe spawn position for an ant
+  getSpawnPosition(index: number, totalAnts: number): { x: number; y: number } {
+    // Distribute ants evenly across the terrain
+    const spacing = MAP_WIDTH / (totalAnts + 1);
     const x = spacing * (index + 1);
     const y = MAP_HEIGHT - this.getHeightAt(x);
     return { x, y };

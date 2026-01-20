@@ -1,5 +1,5 @@
 import { MAP_HEIGHT } from '../constants.ts';
-import { Tank } from '../Tank.ts';
+import { Ant } from '../Ant.ts';
 import { Terrain } from '../Terrain.ts';
 
 interface FireParticle {
@@ -90,7 +90,7 @@ export class BurnArea {
     });
   }
 
-  update(deltaTime: number, tanks: Tank[], terrain: Terrain): void {
+  update(deltaTime: number, ants: Ant[], terrain: Terrain): void {
     if (!this.active) return;
 
     // Update remaining time
@@ -143,24 +143,24 @@ export class BurnArea {
     }
     this.smokeParticles = this.smokeParticles.filter(p => p.life > 0);
 
-    // Apply damage to tanks in range
+    // Apply damage to ants in range
     this.damageTickTimer -= deltaTime;
     if (this.damageTickTimer <= 0) {
       this.damageTickTimer = 0.5; // Damage tick every 0.5 seconds
 
-      for (const tank of tanks) {
-        if (!tank.isAlive) continue;
+      for (const ant of ants) {
+        if (!ant.isAlive) continue;
 
-        const dx = tank.x - this.x;
-        const dy = (tank.y - 10) - this.y;
+        const dx = ant.x - this.x;
+        const dy = (ant.y - 10) - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        if (distance < this.radius + 20) { // Tank radius approximation
+        if (distance < this.radius + 20) { // Ant radius approximation
           // Apply damage based on proximity
           const proximityFactor = 1 - (distance / (this.radius + 20));
           const damage = Math.ceil(this.damagePerSecond * 0.5 * proximityFactor);
           if (damage > 0) {
-            tank.takeDamage(damage);
+            ant.takeDamage(damage);
           }
         }
       }

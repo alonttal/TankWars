@@ -1,10 +1,9 @@
-import { Tank } from './Tank.ts';
+import { Ant } from './Ant.ts';
 import { GRAVITY, MAX_POWER } from './constants.ts';
-import { WeaponType, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
 
 export type AIDifficulty = 'easy' | 'medium' | 'hard';
 
-export class TankAI {
+export class AntAI {
   private difficulty: AIDifficulty;
   private inaccuracy: number;
 
@@ -25,84 +24,21 @@ export class TankAI {
   }
 
   // Select weapon based on situation
-  selectWeapon(shooter: Tank, target: Tank): void {
-    // Easy AI always uses standard weapon
-    if (this.difficulty === 'easy') {
-      shooter.selectWeapon('standard');
-      return;
-    }
-
-    const dx = Math.abs(target.x - shooter.x);
-    const dy = target.y - shooter.y;
-    const targetHealth = target.health;
-
-    // Get available weapons (with ammo)
-    const availableWeapons: WeaponType[] = WEAPON_ORDER.filter(w => shooter.hasAmmo(w));
-
-    // Decision logic based on situation
-
-    // 1. If target is low health and we have heavy cannon, finish them
-    if (targetHealth <= 30 && shooter.hasAmmo('heavy')) {
-      shooter.selectWeapon('heavy');
-      return;
-    }
-
-    // 2. If target is far away, use cluster or napalm for area coverage
-    if (dx > 400 && this.difficulty === 'hard') {
-      if (shooter.hasAmmo('cluster')) {
-        shooter.selectWeapon('cluster');
-        return;
-      }
-      if (shooter.hasAmmo('napalm')) {
-        shooter.selectWeapon('napalm');
-        return;
-      }
-    }
-
-    // 3. If target is in a valley (lower than us), napalm is effective
-    if (dy > 30 && shooter.hasAmmo('napalm')) {
-      shooter.selectWeapon('napalm');
-      return;
-    }
-
-    // 4. Medium range - try heavy cannon for extra damage
-    if (dx > 150 && dx < 350 && shooter.hasAmmo('heavy')) {
-      shooter.selectWeapon('heavy');
-      return;
-    }
-
-    // 5. Random chance to use special weapons (more for hard AI)
-    if (this.difficulty === 'hard' && Math.random() < 0.3) {
-      const specialWeapons = availableWeapons.filter(w => w !== 'standard');
-      if (specialWeapons.length > 0) {
-        const randomWeapon = specialWeapons[Math.floor(Math.random() * specialWeapons.length)];
-        shooter.selectWeapon(randomWeapon);
-        return;
-      }
-    }
-
-    // 6. Medium AI occasionally uses special weapons
-    if (this.difficulty === 'medium' && Math.random() < 0.15) {
-      if (shooter.hasAmmo('heavy')) {
-        shooter.selectWeapon('heavy');
-        return;
-      }
-    }
-
-    // Default to standard
+  selectWeapon(shooter: Ant, _target: Ant): void {
+    // Currently only standard weapon available
     shooter.selectWeapon('standard');
   }
 
   calculateShot(
-    shooter: Tank,
-    target: Tank,
+    shooter: Ant,
+    target: Ant,
     wind: number
   ): { angle: number; power: number } {
     const barrelEnd = shooter.getBarrelEnd();
     const startX = barrelEnd.x;
     const startY = barrelEnd.y;
 
-    // Target position (center of tank)
+    // Target position (center of ant)
     const targetX = target.x;
     const targetY = target.y - 10;
 
@@ -176,8 +112,8 @@ export class TankAI {
         minDistance = dist;
       }
 
-      // Stop if projectile goes below target or too far
-      if (y > targetY + 100 || Math.abs(x - startX) > 1000) {
+      // Stop if projectile goes below target or too far (increased for larger maps)
+      if (y > targetY + 100 || Math.abs(x - startX) > 5000) {
         break;
       }
     }

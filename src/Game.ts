@@ -1,9 +1,9 @@
 import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, BACKGROUND_PARALLAX, MAX_POWER, WIND_STRENGTH_MAX, PLAYER_COLORS, updateCanvasSize, SCALE_X, SCALE_Y, CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.ts';
 import { Terrain } from './Terrain.ts';
-import { Tank } from './Tank.ts';
+import { Ant } from './Ant.ts';
 import { Projectile } from './Projectile.ts';
 import { Explosion } from './Explosion.ts';
-import { TankAI, AIDifficulty } from './AI.ts';
+import { AntAI, AIDifficulty } from './AI.ts';
 import { soundManager } from './Sound.ts';
 import { WeaponType } from './weapons/WeaponTypes.ts';
 import { BurnArea } from './weapons/BurnArea.ts';
@@ -75,14 +75,14 @@ export class Game {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private terrain: Terrain;
-  private tanks: Tank[];
+  private ants: Ant[];
   private explosions: Explosion[];
   private currentPlayerIndex: number;
   private wind: number;
   private state: GameState;
-  private winner: Tank | null;
+  private winner: Ant | null;
   private gameMode: GameMode;
-  private ai: TankAI | null;
+  private ai: AntAI | null;
   private aiThinkingTimer: number;
   private aiShot: { angle: number; power: number } | null;
 
@@ -152,9 +152,6 @@ export class Game {
 
   private lastTime: number;
 
-  // Trajectory preview
-  private trajectoryPoints: { x: number; y: number }[];
-
   // HUD health bar animations
   private hudHealthAnimations: { current: number; target: number }[];
 
@@ -187,7 +184,7 @@ export class Game {
     window.addEventListener('resize', () => this.resizeCanvas());
 
     this.terrain = new Terrain();
-    this.tanks = [];
+    this.ants = [];
     this.explosions = [];
     this.currentPlayerIndex = 0;
     this.wind = 0;
@@ -219,7 +216,6 @@ export class Game {
     this.fireworks = [];
     this.fireworkSpawnTimer = 0;
     this.lastTime = 0;
-    this.trajectoryPoints = [];
     this.hudHealthAnimations = [];
     this.turnBannerAlpha = 0;
     this.turnBannerText = '';
@@ -238,7 +234,7 @@ export class Game {
     // Setup weapon selector callback
     this.weaponSelector.setOnWeaponSelect((weapon: WeaponType) => {
       if (this.state === 'PLAYING' && !this.isAITurn()) {
-        const tank = this.tanks[this.currentPlayerIndex];
+        const tank = this.ants[this.currentPlayerIndex];
         if (tank && tank.selectWeapon(weapon)) {
           this.weaponSelector.update(tank);
           soundManager.playMenuSelect();
@@ -288,8 +284,8 @@ export class Game {
     this.angleSlider.addEventListener('input', () => {
       const angle = parseInt(this.angleSlider.value);
       this.angleValue.textContent = angle.toString();
-      if (this.tanks[this.currentPlayerIndex]) {
-        this.tanks[this.currentPlayerIndex].angle = angle;
+      if (this.ants[this.currentPlayerIndex]) {
+        this.ants[this.currentPlayerIndex].angle = angle;
       }
     });
 
@@ -623,14 +619,14 @@ export class Game {
       soundManager.updateChargingPitch(newPower);
 
       // Update tank charging particles
-      const tank = this.tanks[this.currentPlayerIndex];
+      const tank = this.ants[this.currentPlayerIndex];
       if (tank) {
         tank.updateCharging(deltaTime, newPower);
       }
     }
 
     // Update tanks (smoke particles, damage flash)
-    for (const tank of this.tanks) {
+    for (const tank of this.ants) {
       tank.update(effectiveDelta);
     }
 
@@ -677,7 +673,6 @@ export class Game {
       this.aiThinkingTimer -= deltaTime * 1000;
 
       if (this.aiThinkingTimer <= 0 && this.aiShot) {
-        // AI fires
         this.executeAIShot();
       }
     }
@@ -689,7 +684,7 @@ export class Game {
       let cameraFollowProjectile: Projectile | null = null;
 
       for (const projectile of this.projectiles) {
-        const result = projectile.update(effectiveDelta, this.terrain, this.tanks, this.wind);
+        const result = projectile.update(effectiveDelta, this.terrain, this.ants, this.wind);
 
         // Track if any projectile is still active for camera
         if (projectile.active) {
@@ -759,11 +754,11 @@ export class Game {
         this.targetCameraZoom = 1.05;
       } else if (!anyActiveProjectile) {
         // Return camera to current player's tank
-        const currentTank = this.tanks[this.currentPlayerIndex];
-        if (currentTank && currentTank.isAlive) {
+        const currentAnt = this.ants[this.currentPlayerIndex];
+        if (currentAnt && currentAnt.isAlive) {
           const clamped = this.clampCameraOffset(
-            BASE_WIDTH / 2 - currentTank.x,
-            BASE_HEIGHT / 2 - currentTank.y
+            BASE_WIDTH / 2 - currentAnt.x,
+            BASE_HEIGHT / 2 - currentAnt.y
           );
           this.targetCameraOffsetX = clamped.x;
           this.targetCameraOffsetY = clamped.y;
@@ -773,7 +768,7 @@ export class Game {
 
       // Update burn areas
       for (const burnArea of this.burnAreas) {
-        burnArea.update(effectiveDelta, this.tanks, this.terrain);
+        burnArea.update(effectiveDelta, this.ants, this.terrain);
       }
       this.burnAreas = this.burnAreas.filter(b => !b.isComplete());
 
@@ -804,16 +799,16 @@ export class Game {
 
     // Update power-ups (even when not firing)
     if (this.state === 'PLAYING' || this.state === 'FIRING') {
-      const collected = this.powerUpManager.update(effectiveDelta, this.tanks);
+      const collected = this.powerUpManager.update(effectiveDelta, this.ants);
       if (collected) {
         soundManager.playPowerUpCollect(); // Power-up collection sound
-        this.buffIndicator.update(collected.tank);
+        this.buffIndicator.update(collected.ant);
 
         // Show floating text for power-up
         const config = POWERUP_CONFIGS[collected.type];
         this.floatingTexts.push({
-          x: collected.tank.x,
-          y: collected.tank.y - 50,
+          x: collected.ant.x,
+          y: collected.ant.y - 50,
           text: `+${config.name}`,
           color: config.color,
           life: 1.5,
@@ -830,7 +825,7 @@ export class Game {
     const weaponConfig = projectile.weaponConfig;
 
     // Track health before explosion
-    const healthBefore = this.tanks.map(t => t.health);
+    const healthBefore = this.ants.map(t => t.health);
     const shooterIndex = projectile.owner.playerIndex;
 
     // Get damage multiplier from shooter's buffs
@@ -840,7 +835,7 @@ export class Game {
     // Create explosion with weapon-specific parameters
     const explosion = new Explosion(hitX, hitY, weaponConfig.explosionRadius, finalDamage);
     explosion.applyDamageWithConfig(
-      this.tanks,
+      this.ants,
       this.terrain,
       projectile.owner,
       weaponConfig.explosionRadius,
@@ -853,17 +848,6 @@ export class Game {
     // Consume damage boost after hit
     projectile.owner.consumeDamageBoost();
 
-    // Create burn area for napalm
-    if (weaponConfig.type === 'napalm') {
-      this.burnAreas.push(new BurnArea(
-        hitX,
-        hitY,
-        weaponConfig.explosionRadius,
-        weaponConfig.burnDuration,
-        weaponConfig.burnDamagePerSecond
-      ));
-    }
-
     // Trigger hitstop for impact feel
     this.triggerHitstop(0.08);
 
@@ -875,9 +859,9 @@ export class Game {
     // Track damage dealt and hits
     let totalDamage = 0;
     let hitCount = 0;
-    for (let i = 0; i < this.tanks.length; i++) {
+    for (let i = 0; i < this.ants.length; i++) {
       if (i !== shooterIndex) {
-        const damage = healthBefore[i] - this.tanks[i].health;
+        const damage = healthBefore[i] - this.ants[i].health;
         if (damage > 0) {
           totalDamage += damage;
           hitCount++;
@@ -885,8 +869,8 @@ export class Game {
           // Spawn floating damage number
           const isCritical = damage >= 40;
           this.floatingTexts.push({
-            x: this.tanks[i].x,
-            y: this.tanks[i].y - 40,
+            x: this.ants[i].x,
+            y: this.ants[i].y - 40,
             text: isCritical ? `CRITICAL! -${damage}` : `-${damage}`,
             color: isCritical ? '#FF0000' : '#FF6B6B',
             life: isCritical ? 2.0 : 1.5,
@@ -945,11 +929,11 @@ export class Game {
 
   // Focus camera on a specific tank (used at start of turns)
   // If immediate is true, snap camera instantly (used at game start)
-  private focusCameraOnTank(tank: Tank, immediate: boolean = false): void {
-    // Calculate offset to center the tank in view
+  private focusCameraOnAnt(ant: Ant, immediate: boolean = false): void {
+    // Calculate offset to center the ant in view
     // offset = screenCenter - worldPosition
-    let offsetX = BASE_WIDTH / 2 - tank.x;
-    let offsetY = BASE_HEIGHT / 2 - tank.y;
+    let offsetX = BASE_WIDTH / 2 - ant.x;
+    let offsetY = BASE_HEIGHT / 2 - ant.y;
 
     // Clamp to map bounds
     const clamped = this.clampCameraOffset(offsetX, offsetY);
@@ -996,10 +980,10 @@ export class Game {
 
 
     // Render tanks
-    for (let i = 0; i < this.tanks.length; i++) {
+    for (let i = 0; i < this.ants.length; i++) {
       const isCurrentAndPlaying = i === this.currentPlayerIndex &&
         (this.state === 'PLAYING' || this.state === 'AI_THINKING');
-      this.tanks[i].render(this.ctx, isCurrentAndPlaying, this.isChargingPower);
+      this.ants[i].render(this.ctx, isCurrentAndPlaying, this.isChargingPower);
     }
 
     // Render power meter above tank when charging
@@ -1326,9 +1310,9 @@ export class Game {
 
     // Player labels
     this.ctx.font = 'bold 16px "Courier New"';
-    this.ctx.fillStyle = this.tanks[0]?.color || '#FF6B6B';
+    this.ctx.fillStyle = this.ants[0]?.color || '#FF6B6B';
     this.ctx.fillText(this.gameMode === 'single' ? 'YOU' : 'PLAYER 1', p1X, statsY);
-    this.ctx.fillStyle = this.tanks[1]?.color || '#4ECB71';
+    this.ctx.fillStyle = this.ants[1]?.color || '#4ECB71';
     this.ctx.fillText(this.gameMode === 'single' ? 'CPU' : 'PLAYER 2', p2X, statsY);
 
     // Stats rows with staggered slide in
@@ -1498,7 +1482,7 @@ export class Game {
 
   private startGame(mode: GameMode, aiDifficulty?: AIDifficulty): void {
     this.gameMode = mode;
-    this.tanks = [];
+    this.ants = [];
     this.projectiles = [];
     this.explosions = [];
     this.floatingTexts = [];
@@ -1514,7 +1498,7 @@ export class Game {
 
     // Setup AI for single player
     if (mode === 'single' && aiDifficulty) {
-      this.ai = new TankAI(aiDifficulty);
+      this.ai = new AntAI(aiDifficulty);
     } else {
       this.ai = null;
     }
@@ -1529,9 +1513,9 @@ export class Game {
     for (let i = 0; i < numPlayers; i++) {
       const pos = this.terrain.getSpawnPosition(i, numPlayers);
       const facingRight = i < numPlayers / 2;
-      const tank = new Tank(pos.x, pos.y, PLAYER_COLORS[i], i, facingRight);
+      const tank = new Ant(pos.x, pos.y, PLAYER_COLORS[i], i, facingRight);
       tank.resetWeaponsAndBuffs(); // Ensure weapons/buffs are reset
-      this.tanks.push(tank);
+      this.ants.push(tank);
       this.playerStats.push({ shotsFired: 0, hits: 0, damageDealt: 0 });
       this.hudHealthAnimations.push({ current: 100, target: 100 });
     }
@@ -1541,9 +1525,9 @@ export class Game {
     this.updateWindDisplay();
 
     // Set initial angle based on first player's facing direction
-    const firstTank = this.tanks[0];
-    this.angleSlider.value = firstTank.angle.toString();
-    this.angleValue.textContent = firstTank.angle.toString();
+    const firstAnt = this.ants[0];
+    this.angleSlider.value = firstAnt.angle.toString();
+    this.angleValue.textContent = firstAnt.angle.toString();
 
     this.updateUI();
     this.state = 'PLAYING';
@@ -1552,8 +1536,8 @@ export class Game {
     // Show UI elements
     this.weaponSelector.show();
     this.buffIndicator.show();
-    this.weaponSelector.update(firstTank);
-    this.buffIndicator.update(firstTank);
+    this.weaponSelector.update(firstAnt);
+    this.buffIndicator.update(firstAnt);
     this.weaponSelector.setEnabled(true);
 
     // Show initial turn banner
@@ -1561,7 +1545,7 @@ export class Game {
     this.showTurnBanner(turnText);
 
     // Focus camera on first player (snap immediately at game start)
-    this.focusCameraOnTank(firstTank, true);
+    this.focusCameraOnAnt(firstAnt, true);
 
     // Start background music
     soundManager.startMusic();
@@ -1576,7 +1560,7 @@ export class Game {
     this.isChargingPower = false;
     soundManager.stopCharging();
 
-    const tank = this.tanks[this.currentPlayerIndex];
+    const tank = this.ants[this.currentPlayerIndex];
     if (!tank.isAlive) {
       this.nextPlayer();
       return;
@@ -1640,23 +1624,23 @@ export class Game {
   private startAITurn(): void {
     if (!this.ai) return;
 
-    const aiTank = this.tanks[1];
-    const playerTank = this.tanks[0];
+    const aiAnt = this.ants[1];
+    const playerAnt = this.ants[0];
 
-    if (!aiTank.isAlive || !playerTank.isAlive) return;
+    if (!aiAnt.isAlive || !playerAnt.isAlive) return;
 
     // AI selects weapon based on situation
-    this.ai.selectWeapon(aiTank, playerTank);
+    this.ai.selectWeapon(aiAnt, playerAnt);
 
     // Update weapon selector to show AI's weapon choice
-    this.weaponSelector.update(aiTank);
+    this.weaponSelector.update(aiAnt);
 
     // Calculate shot
-    this.aiShot = this.ai.calculateShot(aiTank, playerTank, this.wind);
+    this.aiShot = this.ai.calculateShot(aiAnt, playerAnt, this.wind);
     this.aiThinkingTimer = this.ai.getThinkingTime();
 
     // Update tank barrel to show aiming
-    aiTank.angle = Math.round(this.aiShot.angle);
+    aiAnt.angle = Math.round(this.aiShot.angle);
 
     this.state = 'AI_THINKING';
     this.fireButton.disabled = true;
@@ -1671,7 +1655,7 @@ export class Game {
   private executeAIShot(): void {
     if (!this.aiShot) return;
 
-    const tank = this.tanks[this.currentPlayerIndex];
+    const tank = this.ants[this.currentPlayerIndex];
     const angle = this.aiShot.angle;
     const power = (this.aiShot.power / 100) * MAX_POWER;
     const weaponConfig = tank.getSelectedWeaponConfig();
@@ -1717,11 +1701,16 @@ export class Game {
   }
 
   private endTurn(): void {
-    // Check for game over
-    const aliveTanks = this.tanks.filter(t => t.isAlive);
+    // Guard: only allow endTurn from FIRING state
+    if (this.state !== 'FIRING') {
+      return;
+    }
 
-    if (aliveTanks.length <= 1) {
-      this.winner = aliveTanks.length === 1 ? aliveTanks[0] : null;
+    // Check for game over
+    const aliveAnts = this.ants.filter(t => t.isAlive);
+
+    if (aliveAnts.length <= 1) {
+      this.winner = aliveAnts.length === 1 ? aliveAnts[0] : null;
       this.state = 'GAME_OVER';
       this.fireButton.disabled = true;
 
@@ -1744,7 +1733,7 @@ export class Game {
     }
 
     // Try to spawn a power-up between turns
-    this.powerUpManager.trySpawn(this.terrain, this.tanks);
+    this.powerUpManager.trySpawn(this.terrain, this.ants);
 
     // Change wind slightly
     this.wind += (Math.random() - 0.5) * 10;
@@ -1755,9 +1744,9 @@ export class Game {
     this.nextPlayer();
 
     // Update UI for new player
-    const currentTank = this.tanks[this.currentPlayerIndex];
-    this.weaponSelector.update(currentTank);
-    this.buffIndicator.update(currentTank);
+    const currentAnt = this.ants[this.currentPlayerIndex];
+    this.weaponSelector.update(currentAnt);
+    this.buffIndicator.update(currentAnt);
     this.weaponSelector.setEnabled(true);
 
     // Check if it's AI's turn
@@ -1771,14 +1760,14 @@ export class Game {
 
   private nextPlayer(): void {
     do {
-      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.tanks.length;
-    } while (!this.tanks[this.currentPlayerIndex].isAlive);
+      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.ants.length;
+    } while (!this.ants[this.currentPlayerIndex].isAlive);
 
     // Reset turn timer
     this.turnTimeRemaining = this.maxTurnTime;
 
     // Update angle slider to current tank's angle
-    const tank = this.tanks[this.currentPlayerIndex];
+    const tank = this.ants[this.currentPlayerIndex];
     this.angleSlider.value = tank.angle.toString();
     this.angleValue.textContent = tank.angle.toString();
 
@@ -1792,13 +1781,13 @@ export class Game {
     this.showTurnBanner(turnText);
 
     // Focus camera on active player
-    this.focusCameraOnTank(tank);
+    this.focusCameraOnAnt(tank);
 
     this.updateUI();
   }
 
   private updateUI(): void {
-    const tank = this.tanks[this.currentPlayerIndex];
+    const tank = this.ants[this.currentPlayerIndex];
     const label = this.gameMode === 'single'
       ? (this.currentPlayerIndex === 0 ? 'Your Turn' : 'CPU Turn')
       : `Player ${this.currentPlayerIndex + 1}`;
@@ -2077,148 +2066,14 @@ export class Game {
     }
   }
 
-  private calculateTrajectory(): void {
-    this.trajectoryPoints = [];
-
-    // Only show trajectory during human player turn (not AI)
-    if (this.state !== 'PLAYING' || this.isAITurn()) {
-      return;
-    }
-
-    const tank = this.tanks[this.currentPlayerIndex];
-    if (!tank || !tank.isAlive) return;
-
-    const angle = parseInt(this.angleSlider.value);
-    const power = (parseInt(this.powerSlider.value) / 100) * MAX_POWER;
-    const barrelEnd = tank.getBarrelEnd();
-
-    // Simulate projectile physics to generate trajectory points
-    const angleRad = (angle * Math.PI) / 180;
-    let x = barrelEnd.x;
-    let y = barrelEnd.y;
-    let vx = Math.cos(angleRad) * power + this.wind * 0.5;
-    let vy = -Math.sin(angleRad) * power;
-
-    const dt = 0.016; // Simulate at 60 FPS
-    const maxPoints = 80; // Limit trajectory length
-    const gravity = 500; // Same as GRAVITY constant
-
-    for (let i = 0; i < maxPoints; i++) {
-      this.trajectoryPoints.push({ x, y });
-
-      // Apply physics (same as Projectile.ts)
-      vx += this.wind * dt * 0.5;
-      vy += gravity * dt;
-      x += vx * dt;
-      y += vy * dt;
-
-      // Stop if we hit terrain or go out of bounds
-      const terrainHeight = this.terrain.getHeightAt(x);
-      const terrainY = MAP_HEIGHT - terrainHeight;
-      if (y >= terrainY || x < -50 || x > MAP_WIDTH + 50 || y > MAP_HEIGHT + 50) {
-        this.trajectoryPoints.push({ x, y: Math.min(y, terrainY) });
-        break;
-      }
-    }
-  }
-
-  private renderTrajectory(): void {
-    if (this.trajectoryPoints.length < 2) return;
-
-    const ctx = this.ctx;
-    ctx.save();
-
-    // Draw dashed trajectory line with fading opacity
-    const totalPoints = this.trajectoryPoints.length;
-    const dashLength = 8;
-    const gapLength = 6;
-    let dashOn = true;
-    let dashProgress = 0;
-
-    for (let i = 1; i < totalPoints; i++) {
-      const prev = this.trajectoryPoints[i - 1];
-      const curr = this.trajectoryPoints[i];
-
-      // Calculate opacity (fades along trajectory)
-      const alpha = 0.8 * (1 - i / totalPoints);
-
-      // Calculate segment properties
-      const dx = curr.x - prev.x;
-      const dy = curr.y - prev.y;
-      const segmentLength = Math.sqrt(dx * dx + dy * dy);
-      const ux = dx / segmentLength;
-      const uy = dy / segmentLength;
-
-      let remaining = segmentLength;
-      let startX = prev.x;
-      let startY = prev.y;
-
-      while (remaining > 0) {
-        const currentLength = dashOn ? dashLength : gapLength;
-        const drawLength = Math.min(remaining, currentLength - dashProgress);
-
-        if (dashOn) {
-          ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(startX, startY);
-          ctx.lineTo(startX + ux * drawLength, startY + uy * drawLength);
-          ctx.stroke();
-        }
-
-        startX += ux * drawLength;
-        startY += uy * drawLength;
-        dashProgress += drawLength;
-        remaining -= drawLength;
-
-        if (dashProgress >= (dashOn ? dashLength : gapLength)) {
-          dashProgress = 0;
-          dashOn = !dashOn;
-        }
-      }
-    }
-
-    // Draw dots at regular intervals
-    for (let i = 0; i < totalPoints; i += 5) {
-      const point = this.trajectoryPoints[i];
-      const alpha = 0.6 * (1 - i / totalPoints);
-      const size = 3 * (1 - i / totalPoints * 0.5);
-
-      ctx.fillStyle = `rgba(255, 220, 100, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Draw predicted landing point
-    if (totalPoints > 0) {
-      const landing = this.trajectoryPoints[totalPoints - 1];
-      ctx.strokeStyle = 'rgba(255, 100, 100, 0.6)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(landing.x, landing.y, 10, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Crosshair at landing point
-      ctx.beginPath();
-      ctx.moveTo(landing.x - 15, landing.y);
-      ctx.lineTo(landing.x + 15, landing.y);
-      ctx.moveTo(landing.x, landing.y - 15);
-      ctx.lineTo(landing.x, landing.y + 15);
-      ctx.stroke();
-    }
-
-    ctx.restore();
-  }
-
   private renderHUDHealthBars(): void {
     const ctx = this.ctx;
     const barWidth = 150;
     const barHeight = 18;
     const padding = 15;
 
-    for (let i = 0; i < this.tanks.length; i++) {
-      const tank = this.tanks[i];
+    for (let i = 0; i < this.ants.length; i++) {
+      const tank = this.ants[i];
       const isLeft = i === 0;
       const barX = isLeft ? padding : BASE_WIDTH - padding - barWidth;
       const barY = 50;
@@ -2312,7 +2167,7 @@ export class Game {
     ctx.globalAlpha = this.turnBannerAlpha;
 
     // Background with glow
-    ctx.shadowColor = this.tanks[this.currentPlayerIndex]?.color || '#fff';
+    ctx.shadowColor = this.ants[this.currentPlayerIndex]?.color || '#fff';
     ctx.shadowBlur = 15;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.beginPath();
@@ -2321,7 +2176,7 @@ export class Game {
     ctx.shadowBlur = 0;
 
     // Border
-    ctx.strokeStyle = this.tanks[this.currentPlayerIndex]?.color || '#fff';
+    ctx.strokeStyle = this.ants[this.currentPlayerIndex]?.color || '#fff';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.roundRect(bannerX, bannerY, bannerWidth, bannerHeight, 8);
@@ -2340,7 +2195,7 @@ export class Game {
     if (!this.isChargingPower || this.state !== 'PLAYING') return;
 
     const ctx = this.ctx;
-    const tank = this.tanks[this.currentPlayerIndex];
+    const tank = this.ants[this.currentPlayerIndex];
     if (!tank || !tank.isAlive) return;
 
     const power = parseInt(this.powerSlider.value);

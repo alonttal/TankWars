@@ -1,4 +1,4 @@
-import { Tank } from '../Tank.ts';
+import { Ant } from '../Ant.ts';
 import { POWERUP_CONFIGS } from '../powerups/PowerUpTypes.ts';
 
 export class BuffIndicator {
@@ -24,13 +24,13 @@ export class BuffIndicator {
     return container;
   }
 
-  update(tank: Tank | null): void {
+  update(ant: Ant | null): void {
     // Clear existing buffs
     this.container.innerHTML = '';
 
-    if (!tank) return;
+    if (!ant) return;
 
-    for (const buff of tank.activeBuffs) {
+    for (const buff of ant.activeBuffs) {
       const config = POWERUP_CONFIGS[buff.type];
 
       const buffElement = document.createElement('div');

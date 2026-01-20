@@ -1,5 +1,5 @@
 import { WeaponType, WEAPON_ORDER, WEAPON_CONFIGS } from '../weapons/WeaponTypes.ts';
-import { Tank } from '../Tank.ts';
+import { Ant } from '../Ant.ts';
 
 export class WeaponSelector {
   private container: HTMLElement;
@@ -89,17 +89,17 @@ export class WeaponSelector {
     this.onWeaponSelect = callback;
   }
 
-  update(tank: Tank | null): void {
+  update(ant: Ant | null): void {
     for (const [weaponType, button] of this.buttons) {
-      if (!tank) {
+      if (!ant) {
         button.disabled = true;
         button.classList.remove('selected');
         continue;
       }
 
-      const ammo = tank.getAmmo(weaponType);
-      const hasAmmo = tank.hasAmmo(weaponType);
-      const isSelected = tank.selectedWeapon === weaponType;
+      const ammo = ant.getAmmo(weaponType);
+      const hasAmmo = ant.hasAmmo(weaponType);
+      const isSelected = ant.selectedWeapon === weaponType;
 
       // Update ammo display
       const ammoSpan = button.querySelector('.weapon-ammo');

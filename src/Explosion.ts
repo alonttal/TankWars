@@ -1,5 +1,5 @@
 import { EXPLOSION_RADIUS, EXPLOSION_DAMAGE_RADIUS } from './constants.ts';
-import { Tank } from './Tank.ts';
+import { Ant } from './Ant.ts';
 import { Terrain } from './Terrain.ts';
 
 interface Particle {
@@ -192,39 +192,39 @@ export class Explosion {
     this.brightnessFlash = 0.8;
   }
 
-  applyDamage(tanks: Tank[], terrain: Terrain, _shooter: Tank): void {
+  applyDamage(ants: Ant[], terrain: Terrain, _shooter: Ant): void {
     // Damage terrain
     terrain.createCrater(this.x, this.y, EXPLOSION_RADIUS);
 
-    // Damage tanks
-    for (const tank of tanks) {
-      if (!tank.isAlive) continue;
+    // Damage ants
+    for (const ant of ants) {
+      if (!ant.isAlive) continue;
 
-      const dx = tank.x - this.x;
-      const dy = (tank.y - 10) - this.y; // Tank center
+      const dx = ant.x - this.x;
+      const dy = (ant.y - 10) - this.y; // Ant center
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance < EXPLOSION_DAMAGE_RADIUS) {
         // Damage falls off with distance
         const damageMultiplier = 1 - (distance / EXPLOSION_DAMAGE_RADIUS);
         const damage = Math.floor(50 * damageMultiplier + 10);
-        tank.takeDamage(damage);
+        ant.takeDamage(damage);
       }
     }
 
-    // Update tank positions after terrain deformation
-    for (const tank of tanks) {
-      if (tank.isAlive) {
-        tank.updatePosition(terrain);
+    // Update ant positions after terrain deformation
+    for (const ant of ants) {
+      if (ant.isAlive) {
+        ant.updatePosition(terrain);
       }
     }
   }
 
   // Apply damage with custom weapon config parameters
   applyDamageWithConfig(
-    tanks: Tank[],
+    ants: Ant[],
     terrain: Terrain,
-    _shooter: Tank,
+    _shooter: Ant,
     explosionRadius: number,
     baseDamage: number,
     craterDepthMultiplier: number
@@ -235,26 +235,26 @@ export class Explosion {
     // Calculate damage radius based on explosion radius
     const damageRadius = explosionRadius * 1.15;
 
-    // Damage tanks
-    for (const tank of tanks) {
-      if (!tank.isAlive) continue;
+    // Damage ants
+    for (const ant of ants) {
+      if (!ant.isAlive) continue;
 
-      const dx = tank.x - this.x;
-      const dy = (tank.y - 10) - this.y; // Tank center
+      const dx = ant.x - this.x;
+      const dy = (ant.y - 10) - this.y; // Ant center
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance < damageRadius) {
         // Damage falls off with distance
         const damageMultiplier = 1 - (distance / damageRadius);
         const damage = Math.floor(baseDamage * damageMultiplier + baseDamage * 0.2);
-        tank.takeDamage(damage);
+        ant.takeDamage(damage);
       }
     }
 
-    // Update tank positions after terrain deformation
-    for (const tank of tanks) {
-      if (tank.isAlive) {
-        tank.updatePosition(terrain);
+    // Update ant positions after terrain deformation
+    for (const ant of ants) {
+      if (ant.isAlive) {
+        ant.updatePosition(terrain);
       }
     }
   }

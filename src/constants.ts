@@ -3,13 +3,14 @@ export const BASE_WIDTH = 800;
 export const BASE_HEIGHT = 500;
 
 // Map dimensions (larger than view to allow camera movement)
-export const MAP_WIDTH = 1200;
-export const MAP_HEIGHT = 1200; // Extra height for projectiles going up
+// Similar to Worms Armageddon - large horizontal maps with varied terrain
+export const MAP_WIDTH = 4000;
+export const MAP_HEIGHT = 1800; // Extra height for projectiles going up
 
 // Terrain generation bounds (fixed values, not proportional to MAP_HEIGHT)
 // These define where the terrain surface should be generated
-export const TERRAIN_MIN_HEIGHT = 150; // Minimum terrain height from bottom
-export const TERRAIN_MAX_HEIGHT = 400; // Maximum terrain height from bottom
+export const TERRAIN_MIN_HEIGHT = 200; // Minimum terrain height from bottom
+export const TERRAIN_MAX_HEIGHT = 800; // Maximum terrain height from bottom (allows tall hills)
 
 // Camera home position offset (centers view on terrain area)
 // This offsets the view downward to show the terrain instead of empty sky
@@ -36,7 +37,7 @@ export const GRAVITY = 150; // pixels per second squared
 export const MAX_POWER = 400; // max initial velocity
 export const WIND_STRENGTH_MAX = 30; // max wind effect
 
-// Tank properties (in base coordinates)
+// Ant properties (in base coordinates) - keeping TANK_ prefix for now until visual redesign
 export const TANK_WIDTH = 40;
 export const TANK_HEIGHT = 20;
 export const BARREL_LENGTH = 25;

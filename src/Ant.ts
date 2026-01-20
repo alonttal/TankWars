@@ -76,7 +76,7 @@ interface FireParticle {
   size: number;
 }
 
-export class Tank {
+export class Ant {
   x: number;
   y: number;
   angle: number; // in degrees, 0 = right, 90 = up, 180 = left
@@ -242,8 +242,8 @@ export class Tank {
       this.deathPopY = 0;
       this.deathPopVy = -120; // Initial upward pop velocity
 
-      // Spawn MORE destruction debris (enhanced)
-      const debrisColors = [this.color, '#444', '#333', '#666', '#555', '#222'];
+      // Spawn MORE destruction debris (enhanced) - black body with some helmet pieces
+      const debrisColors = [this.color, '#1a1a1a', '#1a1a1a', '#1a1a1a', '#0a0a0a', '#2a2a2a'];
       for (let i = 0; i < 25; i++) { // Increased from 15 to 25
         const angle = Math.random() * Math.PI - Math.PI / 2;
         const speed = 120 + Math.random() * 180; // Faster
@@ -497,8 +497,8 @@ export class Tank {
           this.deathAnimationStage = 3;
           this.deathAnimationTimer = 0.3;
 
-          // Spawn additional debris burst when landing
-          const debrisColors = [this.color, '#444', '#333'];
+          // Spawn additional debris burst when landing - black with helmet color
+          const debrisColors = [this.color, '#1a1a1a', '#0a0a0a'];
           for (let i = 0; i < 10; i++) {
             const angle = Math.random() * Math.PI - Math.PI / 2;
             const speed = 60 + Math.random() * 100;
@@ -526,9 +526,21 @@ export class Tank {
 
   getBarrelEnd(): { x: number; y: number } {
     const angleRad = (this.angle * Math.PI) / 180;
+    const direction = this.facingRight ? 1 : -1;
+
+    // Ant body positions (matching render method)
+    const baseY = this.y;
+    const thoraxX = this.x + direction * 8;
+    const thoraxY = baseY - 22;
+
+    // Bazooka on back shoulder (behind body)
+    const bazookaStartX = thoraxX - direction * 6;
+    const bazookaStartY = thoraxY;
+
+    // End of bazooka (muzzle)
     return {
-      x: this.x + Math.cos(angleRad) * BARREL_LENGTH,
-      y: this.y - TANK_HEIGHT / 2 - Math.sin(angleRad) * BARREL_LENGTH,
+      x: bazookaStartX + Math.cos(angleRad) * BARREL_LENGTH,
+      y: bazookaStartY - Math.sin(angleRad) * BARREL_LENGTH,
     };
   }
 
@@ -643,7 +655,7 @@ export class Tank {
     this.activeBuffs = [];
   }
 
-  render(ctx: CanvasRenderingContext2D, isCurrentPlayer: boolean, isCharging: boolean = false): void {
+  render(ctx: CanvasRenderingContext2D, isCurrentPlayer: boolean, _isCharging: boolean = false): void {
     if (!this.isAlive) {
       this.renderDestroyed(ctx);
       return;
@@ -657,14 +669,13 @@ export class Tank {
 
     // Draw smoke rings (behind everything)
     for (const ring of this.smokeRings) {
-      ctx.strokeStyle = `rgba(150, 150, 150, ${ring.alpha * 0.6})`;
-      ctx.lineWidth = 3;
+      ctx.fillStyle = `rgba(150, 150, 150, ${ring.alpha * 0.6})`;
       ctx.beginPath();
       ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.fill();
     }
 
-    // Draw smoke particles (behind tank)
+    // Draw smoke particles (behind ant)
     for (const particle of this.smokeParticles) {
       const alpha = (particle.life / 1.8) * 0.6;
       const gray = 60 + Math.random() * 50;
@@ -674,372 +685,368 @@ export class Tank {
       ctx.fill();
     }
 
-    // Idle engine vibration (subtle rumble, no vertical movement)
-    const vibrationX = (Math.sin(this.idleTime * 8) * 0.3 + Math.sin(this.idleTime * 10) * 0.2);
-    const vibrationY = (Math.cos(this.idleTime * 9) * 0.2);
-    const tankY = this.y - TANK_HEIGHT;
-
     // Calculate damage tinting
     const healthPercent = this.health / 100;
-    const damageDarken = Math.floor((1 - healthPercent) * 40);
 
-    // Get colors
-    let tankColor = this.color;
-    let highlightColor = this.lightenColor(this.color, 60);
-    let shadowColor = this.darkenColor(this.color, 50);
-    const outlineColor = this.darkenColor(this.color, 80);
+    // Ant body is black, helmet is team color
+    let antColor = '#1a1a1a'; // Dark black for body
+    let highlightColor = '#3a3a3a'; // Subtle highlight
+    let shadowColor = '#0a0a0a'; // Very dark for legs/arms
+
+    // Helmet keeps team color
+    let helmetColor = this.color;
+    let helmetHighlight = this.lightenColor(this.color, 40);
 
     if (healthPercent < 1) {
-      tankColor = this.darkenColor(this.color, damageDarken);
-      highlightColor = this.darkenColor(this.lightenColor(this.color, 60), damageDarken);
-      shadowColor = this.darkenColor(this.darkenColor(this.color, 50), damageDarken);
+      const damageDarken = Math.floor((1 - healthPercent) * 20);
+      helmetColor = this.darkenColor(this.color, damageDarken);
+      helmetHighlight = this.darkenColor(this.lightenColor(this.color, 40), damageDarken);
     }
 
     if (this.damageFlash > 0) {
-      tankColor = '#fff';
+      antColor = '#fff';
       highlightColor = '#fff';
       shadowColor = '#ddd';
+      helmetColor = '#fff';
+      helmetHighlight = '#fff';
     }
+
+    // Idle animation - subtle breathing movement
+    const breathe = Math.sin(this.idleTime * 2) * 0.5;
+
+    // Direction the ant faces
+    const direction = this.facingRight ? 1 : -1;
+
+    // Base position
+    const baseY = this.y; // Ground level
+    const bodyX = this.x;
 
     // === SHADOW ===
     ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
     ctx.beginPath();
-    ctx.ellipse(this.x + 2, this.y + 3, TANK_WIDTH / 2 + 12, 5, 0, 0, Math.PI * 2);
+    ctx.ellipse(this.x - direction * 2, baseY + 2, 18, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // === CONTINUOUS TRACK (Chunky cartoon tank tread) ===
-    const trackWidth = TANK_WIDTH + 14; // Match body width
-    const trackHeight = 14;
-    const trackY = this.y - trackHeight + 2;
-    const trackRadius = trackHeight / 2; // Rounded ends
-
-    // Track shadow
-    ctx.fillStyle = '#111';
-    ctx.beginPath();
-    ctx.roundRect(
-      this.x - trackWidth / 2 + 2,
-      trackY + 2,
-      trackWidth,
-      trackHeight,
-      trackRadius
-    );
-    ctx.fill();
-
-    // Main track body (dark rubber)
-    ctx.fillStyle = '#2a2a2a';
-    ctx.beginPath();
-    ctx.roundRect(
-      this.x - trackWidth / 2,
-      trackY,
-      trackWidth,
-      trackHeight,
-      trackRadius
-    );
-    ctx.fill();
-
-    // Track outline
-    ctx.strokeStyle = '#111';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(
-      this.x - trackWidth / 2,
-      trackY,
-      trackWidth,
-      trackHeight,
-      trackRadius
-    );
-    ctx.stroke();
-
-    // Inner track area (where wheels would be - darker inset)
-    ctx.fillStyle = '#1a1a1a';
-    ctx.beginPath();
-    ctx.roundRect(
-      this.x - trackWidth / 2 + 4,
-      trackY + 3,
-      trackWidth - 8,
-      trackHeight - 6,
-      trackRadius - 2
-    );
-    ctx.fill();
-
-    // Animated tread segments
-    const treadOffset = (this.idleTime * 0.5) % 1; // Slow animation
-    const treadCount = 10;
-    const treadSpacing = (trackWidth - 8) / treadCount;
-
-    ctx.fillStyle = '#3a3a3a';
-    for (let i = 0; i < treadCount; i++) {
-      const tx = this.x - trackWidth / 2 + 6 + (i + treadOffset) * treadSpacing;
-      if (tx < this.x + trackWidth / 2 - 6) {
-        ctx.beginPath();
-        ctx.roundRect(tx, trackY + 1, 3, trackHeight - 2, 1);
-        ctx.fill();
-      }
-    }
-
-    // Track teeth/grips on bottom edge
-    ctx.fillStyle = '#222';
-    const teethCount = 12;
-    const teethSpacing = (trackWidth - 16) / (teethCount - 1);
-    for (let i = 0; i < teethCount; i++) {
-      const tx = this.x - trackWidth / 2 + 8 + i * teethSpacing;
-      ctx.beginPath();
-      ctx.roundRect(tx - 2, trackY + trackHeight - 4, 4, 4, 1);
-      ctx.fill();
-    }
-
-    // Highlight on top of track
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.beginPath();
-    ctx.roundRect(
-      this.x - trackWidth / 2 + 6,
-      trackY + 1,
-      trackWidth - 12,
-      3,
-      2
-    );
-    ctx.fill();
-
-    // Drive wheel hints at ends (small circles visible through track)
-    ctx.fillStyle = '#444';
-    ctx.beginPath();
-    ctx.arc(this.x - trackWidth / 2 + trackRadius, trackY + trackHeight / 2, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(this.x + trackWidth / 2 - trackRadius, trackY + trackHeight / 2, 4, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Drive wheel center dots
-    ctx.fillStyle = '#555';
-    ctx.beginPath();
-    ctx.arc(this.x - trackWidth / 2 + trackRadius, trackY + trackHeight / 2, 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(this.x + trackWidth / 2 - trackRadius, trackY + trackHeight / 2, 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === TANK BODY (Wide, chunky cartoon shape with engine vibration) ===
-    const bodyWidth = TANK_WIDTH + 14; // Wider body
-    const bodyHeight = TANK_HEIGHT - 6; // Flatter body
-    const bodyY = tankY + 6 + vibrationY;
-    const bodyX = this.x + vibrationX;
-
-    // Body shadow (stays still)
-    ctx.fillStyle = shadowColor;
-    ctx.beginPath();
-    ctx.roundRect(
-      this.x - bodyWidth / 2 + 4,
-      tankY + 8,
-      bodyWidth - 4,
-      bodyHeight,
-      6
-    );
-    ctx.fill();
-
-    // Main body (with vibration)
-    const bodyGradient = ctx.createLinearGradient(
-      bodyX, bodyY,
-      bodyX, bodyY + bodyHeight
-    );
-    bodyGradient.addColorStop(0, highlightColor);
-    bodyGradient.addColorStop(0.4, tankColor);
-    bodyGradient.addColorStop(1, shadowColor);
-
-    ctx.fillStyle = bodyGradient;
-    ctx.beginPath();
-    ctx.roundRect(
-      bodyX - bodyWidth / 2 + 2,
-      bodyY,
-      bodyWidth - 4,
-      bodyHeight,
-      6
-    );
-    ctx.fill();
-
-    // Body outline
-    ctx.strokeStyle = outlineColor;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(
-      bodyX - bodyWidth / 2 + 2,
-      bodyY,
-      bodyWidth - 4,
-      bodyHeight,
-      6
-    );
-    ctx.stroke();
-
-    // Body shine (top highlight)
-    ctx.fillStyle = `rgba(255, 255, 255, 0.3)`;
-    ctx.beginPath();
-    ctx.roundRect(
-      bodyX - bodyWidth / 3,
-      bodyY + 2,
-      bodyWidth / 1.5 - 4,
-      3,
-      2
-    );
-    ctx.fill();
-
-    // Side panel detail (left)
-    ctx.fillStyle = shadowColor;
-    ctx.beginPath();
-    ctx.roundRect(
-      bodyX - bodyWidth / 2 + 5,
-      bodyY + 3,
-      8,
-      bodyHeight - 6,
-      2
-    );
-    ctx.fill();
-
-    // Side panel detail (right)
-    ctx.beginPath();
-    ctx.roundRect(
-      bodyX + bodyWidth / 2 - 13,
-      bodyY + 3,
-      8,
-      bodyHeight - 6,
-      2
-    );
-    ctx.fill();
-
-    // === EXHAUST PUFFS (from back of tank) ===
-    const exhaustX = this.facingRight ? this.x - bodyWidth / 2 : this.x + bodyWidth / 2;
-    const exhaustY = bodyY + bodyHeight / 2;
-    const puffPhase = this.idleTime * 3;
-
-    // Small exhaust puffs
-    ctx.fillStyle = 'rgba(100, 100, 100, 0.4)';
-    const puff1Size = 3 + Math.sin(puffPhase) * 1;
-    const puff1Offset = 4 + Math.sin(puffPhase) * 2;
-    ctx.beginPath();
-    ctx.arc(
-      this.facingRight ? exhaustX - puff1Offset : exhaustX + puff1Offset,
-      exhaustY - 1,
-      puff1Size,
-      0, Math.PI * 2
-    );
-    ctx.fill();
-
-    ctx.fillStyle = 'rgba(80, 80, 80, 0.3)';
-    const puff2Size = 2 + Math.cos(puffPhase * 1.3) * 1;
-    const puff2Offset = 8 + Math.cos(puffPhase) * 2;
-    ctx.beginPath();
-    ctx.arc(
-      this.facingRight ? exhaustX - puff2Offset : exhaustX + puff2Offset,
-      exhaustY - 3,
-      puff2Size,
-      0, Math.PI * 2
-    );
-    ctx.fill();
-
-    // === TURRET (Wider dome to match body) ===
-    const turretWidth = TANK_WIDTH * 0.7; // Wider turret
-    const turretHeight = 12; // Slightly flatter
-    const turretY = bodyY - turretHeight + 6;
-    const turretX = bodyX; // Turret follows body vibration
-
-    // Turret shadow (stays still)
-    ctx.fillStyle = shadowColor;
-    ctx.beginPath();
-    ctx.ellipse(this.x + 1, turretY + turretHeight / 2 + 2, turretWidth / 2, turretHeight / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Main turret (dome shape)
-    const turretGradient = ctx.createRadialGradient(
-      turretX - 4, turretY + 2, 0,
-      turretX, turretY + turretHeight / 2, turretWidth / 2
-    );
-    turretGradient.addColorStop(0, highlightColor);
-    turretGradient.addColorStop(0.5, tankColor);
-    turretGradient.addColorStop(1, shadowColor);
-
-    ctx.fillStyle = turretGradient;
-    ctx.beginPath();
-    ctx.ellipse(turretX, turretY + turretHeight / 2, turretWidth / 2, turretHeight / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Turret outline
-    ctx.strokeStyle = outlineColor;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.ellipse(turretX, turretY + turretHeight / 2, turretWidth / 2, turretHeight / 2, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Turret shine
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-    ctx.beginPath();
-    ctx.ellipse(turretX - 4, turretY + 3, turretWidth / 3, 3, -0.3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Hatch on turret
-    ctx.fillStyle = shadowColor;
-    ctx.beginPath();
-    ctx.arc(turretX, turretY + turretHeight / 2, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = outlineColor;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // Hatch highlight
-    ctx.fillStyle = highlightColor;
-    ctx.beginPath();
-    ctx.arc(turretX - 1, turretY + turretHeight / 2 - 1, 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === BARREL (Chunky and fun, follows turret vibration) ===
+    // === BAZOOKA AND ARMS (drawn first, behind the ant body) ===
     const angleRad = (this.angle * Math.PI) / 180;
-    const recoiledLength = BARREL_LENGTH - this.recoilOffset;
-    const barrelStartX = turretX;
-    const barrelStartY = turretY + turretHeight / 2;
+    const bazookaLength = BARREL_LENGTH - this.recoilOffset;
 
-    // Barrel thickness
-    const barrelThickness = 8;
+    // Position thorax early for arm calculations
+    const thoraxX = bodyX + direction * 8;
+    const thoraxY = baseY - 22 + breathe;
 
+    // Bazooka on back shoulder (opposite side, behind body)
+    const bazookaStartX = thoraxX - direction * 6;
+    const bazookaStartY = thoraxY;
+
+    // === BAZOOKA ===
     ctx.save();
-    ctx.translate(barrelStartX, barrelStartY);
+    ctx.translate(bazookaStartX, bazookaStartY);
     ctx.rotate(-angleRad);
 
-    // Barrel shadow
-    ctx.fillStyle = shadowColor;
+    // Main tube (olive/army green)
+    ctx.fillStyle = '#4A5D23';
     ctx.beginPath();
-    ctx.roundRect(1, -barrelThickness / 2 + 1, recoiledLength, barrelThickness, 3);
+    ctx.roundRect(-4, -5, bazookaLength + 4, 10, 3);
     ctx.fill();
 
-    // Main barrel
-    const barrelGradient = ctx.createLinearGradient(0, -barrelThickness / 2, 0, barrelThickness / 2);
-    barrelGradient.addColorStop(0, highlightColor);
-    barrelGradient.addColorStop(0.3, tankColor);
-    barrelGradient.addColorStop(1, shadowColor);
-
-    ctx.fillStyle = barrelGradient;
+    // Tube highlight
+    ctx.fillStyle = '#5C7A29';
     ctx.beginPath();
-    ctx.roundRect(0, -barrelThickness / 2, recoiledLength, barrelThickness, 3);
+    ctx.roundRect(-2, -4, bazookaLength, 4, 2);
     ctx.fill();
 
-    // Barrel outline
-    ctx.strokeStyle = outlineColor;
-    ctx.lineWidth = 2;
+    // Back opening
+    ctx.fillStyle = '#2D3A16';
     ctx.beginPath();
-    ctx.roundRect(0, -barrelThickness / 2, recoiledLength, barrelThickness, 3);
-    ctx.stroke();
-
-    // Muzzle brake (chunky end piece)
-    const muzzleX = recoiledLength - 6;
-    ctx.fillStyle = shadowColor;
-    ctx.beginPath();
-    ctx.roundRect(muzzleX, -barrelThickness / 2 - 2, 8, barrelThickness + 4, 2);
+    ctx.arc(-2, 0, 4, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = outlineColor;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.arc(-2, 0, 2, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Barrel highlight stripe
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-    ctx.fillRect(4, -barrelThickness / 2 + 1, recoiledLength - 12, 2);
+    // Front muzzle
+    ctx.fillStyle = '#2D3A16';
+    ctx.beginPath();
+    ctx.arc(bazookaLength, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.arc(bazookaLength, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sight on top
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.roundRect(6, -8, 6, 4, 1);
+    ctx.fill();
+
+    // Grip underneath
+    ctx.fillStyle = '#3D2B1F';
+    ctx.beginPath();
+    ctx.roundRect(10, 4, 8, 5, 2);
+    ctx.fill();
 
     ctx.restore();
+
+    // === BACK ARM (behind body, supporting bazooka) ===
+    ctx.fillStyle = shadowColor;
+    const backGripX = bazookaStartX + Math.cos(angleRad) * 4;
+    const backGripY = bazookaStartY - Math.sin(angleRad) * 4;
+
+    ctx.beginPath();
+    ctx.moveTo(thoraxX - direction * 4, thoraxY + 2);
+    ctx.quadraticCurveTo(
+      thoraxX - direction * 6, thoraxY,
+      backGripX, backGripY + 4
+    );
+    ctx.lineTo(backGripX + 2, backGripY + 6);
+    ctx.quadraticCurveTo(
+      thoraxX - direction * 5, thoraxY + 2,
+      thoraxX - direction * 3, thoraxY + 4
+    );
+    ctx.fill();
+
+    // === ABDOMEN (lower body - horizontal oval, slightly tilted up at front) ===
+    const abdomenX = bodyX - direction * 6;
+    const abdomenY = baseY - 10 + breathe;
+
+    ctx.fillStyle = antColor;
+    ctx.beginPath();
+    ctx.ellipse(abdomenX, abdomenY, 11, 7, direction * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Abdomen highlight
+    ctx.fillStyle = highlightColor;
+    ctx.beginPath();
+    ctx.ellipse(abdomenX - 2, abdomenY - 3, 4, 2.5, direction * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === CONNECTOR: Abdomen to Waist (petiole) ===
+    const waistX = bodyX + direction * 4;
+    const waistY = baseY - 15 + breathe;
+
+    ctx.fillStyle = shadowColor;
+    ctx.beginPath();
+    ctx.moveTo(abdomenX + direction * 8, abdomenY - 2);
+    ctx.quadraticCurveTo(
+      waistX - direction * 2, waistY + 2,
+      waistX, waistY
+    );
+    ctx.quadraticCurveTo(
+      waistX - direction * 2, waistY - 2,
+      abdomenX + direction * 8, abdomenY - 4
+    );
+    ctx.fill();
+
+    // Waist node (petiole)
+    ctx.beginPath();
+    ctx.ellipse(waistX, waistY, 3, 4, direction * -0.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === CONNECTOR: Waist to Thorax ===
+    ctx.fillStyle = antColor;
+    ctx.beginPath();
+    ctx.moveTo(waistX + direction * 2, waistY - 2);
+    ctx.quadraticCurveTo(
+      thoraxX - direction * 4, thoraxY + 6,
+      thoraxX - direction * 2, thoraxY + 5
+    );
+    ctx.lineTo(thoraxX - direction * 2, thoraxY + 3);
+    ctx.quadraticCurveTo(
+      thoraxX - direction * 5, thoraxY + 4,
+      waistX + direction * 2, waistY
+    );
+    ctx.fill();
+
+    // === THORAX (upper body - angled upward) ===
+    // Note: thoraxX and thoraxY already declared earlier for bazooka positioning
+
+    ctx.fillStyle = antColor;
+    ctx.beginPath();
+    ctx.ellipse(thoraxX, thoraxY, 6, 8, direction * -0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Thorax highlight
+    ctx.fillStyle = highlightColor;
+    ctx.beginPath();
+    ctx.ellipse(thoraxX - 1, thoraxY - 3, 2.5, 3, direction * -0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === CONNECTOR: Thorax to Neck ===
+    const neckX = bodyX + direction * 13;
+    const neckY = baseY - 30 + breathe;
+
+    ctx.fillStyle = shadowColor;
+    ctx.beginPath();
+    ctx.moveTo(thoraxX + direction * 3, thoraxY - 5);
+    ctx.quadraticCurveTo(
+      neckX - direction * 2, neckY + 4,
+      neckX, neckY + 2
+    );
+    ctx.lineTo(neckX, neckY);
+    ctx.quadraticCurveTo(
+      neckX - direction * 3, neckY + 2,
+      thoraxX + direction * 2, thoraxY - 6
+    );
+    ctx.fill();
+
+    // Neck node
+    ctx.beginPath();
+    ctx.ellipse(neckX, neckY, 2.5, 3, direction * -0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === CONNECTOR: Neck to Head ===
+    const headX = bodyX + direction * 18;
+    const headY = baseY - 36 + breathe;
+    const headRadius = 8;
+
+    ctx.fillStyle = antColor;
+    ctx.beginPath();
+    ctx.moveTo(neckX + direction * 1, neckY - 2);
+    ctx.quadraticCurveTo(
+      headX - direction * 6, headY + 6,
+      headX - direction * 4, headY + 5
+    );
+    ctx.lineTo(headX - direction * 4, headY + 3);
+    ctx.quadraticCurveTo(
+      headX - direction * 7, headY + 4,
+      neckX + direction * 1, neckY
+    );
+    ctx.fill();
+
+    // === HEAD ===
+    ctx.fillStyle = antColor;
+    ctx.beginPath();
+    ctx.arc(headX, headY, headRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Head highlight
+    ctx.fillStyle = highlightColor;
+    ctx.beginPath();
+    ctx.arc(headX - 2, headY - 3, headRadius / 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === 4 LEGS (from abdomen, going down) ===
+    ctx.fillStyle = shadowColor;
+    const legShift = Math.sin(this.idleTime * 3) * 1;
+
+    // Back legs (from back of abdomen)
+    const backLegX = abdomenX - direction * 5;
+    // Back left
+    ctx.beginPath();
+    ctx.moveTo(backLegX, abdomenY + 3);
+    ctx.quadraticCurveTo(backLegX - 6, abdomenY + 8, backLegX - 8 - legShift, baseY);
+    ctx.lineTo(backLegX - 5 - legShift, baseY);
+    ctx.quadraticCurveTo(backLegX - 4, abdomenY + 6, backLegX + 2, abdomenY + 3);
+    ctx.fill();
+    // Back right
+    ctx.beginPath();
+    ctx.moveTo(backLegX, abdomenY + 3);
+    ctx.quadraticCurveTo(backLegX + 6, abdomenY + 8, backLegX + 8 + legShift, baseY);
+    ctx.lineTo(backLegX + 5 + legShift, baseY);
+    ctx.quadraticCurveTo(backLegX + 4, abdomenY + 6, backLegX - 2, abdomenY + 3);
+    ctx.fill();
+
+    // Front legs (from front of abdomen, closer to thorax connection)
+    const frontLegX = abdomenX + direction * 6;
+    // Front left
+    ctx.beginPath();
+    ctx.moveTo(frontLegX, abdomenY + 2);
+    ctx.quadraticCurveTo(frontLegX - 5, abdomenY + 8, frontLegX - 5 + legShift, baseY);
+    ctx.lineTo(frontLegX - 2 + legShift, baseY);
+    ctx.quadraticCurveTo(frontLegX - 3, abdomenY + 6, frontLegX + 2, abdomenY + 2);
+    ctx.fill();
+    // Front right
+    ctx.beginPath();
+    ctx.moveTo(frontLegX, abdomenY + 2);
+    ctx.quadraticCurveTo(frontLegX + 5, abdomenY + 8, frontLegX + 5 - legShift, baseY);
+    ctx.lineTo(frontLegX + 2 - legShift, baseY);
+    ctx.quadraticCurveTo(frontLegX + 3, abdomenY + 6, frontLegX - 2, abdomenY + 2);
+    ctx.fill();
+
+    // === HELMET (team color) ===
+    ctx.fillStyle = helmetColor;
+    ctx.beginPath();
+    ctx.ellipse(headX, headY - 5, headRadius + 2, 6, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+
+    // Helmet shine
+    ctx.fillStyle = helmetHighlight;
+    ctx.beginPath();
+    ctx.ellipse(headX - 2, headY - 7, 4, 2, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === BIG EYES (cartoon style) ===
+    // Eye white
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(headX + direction * 4, headY - 1, 4, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pupil
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(headX + direction * 5, headY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eye shine
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(headX + direction * 5.5, headY - 1, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === ANTENNAE ===
+    ctx.fillStyle = shadowColor;
+    const antennaBaseX = headX - direction * 2;
+    const antennaBaseY = headY - headRadius;
+
+    // Left antenna
+    ctx.beginPath();
+    ctx.moveTo(antennaBaseX - 2, antennaBaseY);
+    ctx.quadraticCurveTo(
+      antennaBaseX - 6, antennaBaseY - 10,
+      antennaBaseX - 4 + Math.sin(this.idleTime * 4) * 2, antennaBaseY - 14
+    );
+    ctx.lineTo(antennaBaseX - 2 + Math.sin(this.idleTime * 4) * 2, antennaBaseY - 13);
+    ctx.quadraticCurveTo(
+      antennaBaseX - 4, antennaBaseY - 8,
+      antennaBaseX, antennaBaseY
+    );
+    ctx.fill();
+
+    // Right antenna
+    ctx.beginPath();
+    ctx.moveTo(antennaBaseX + 2, antennaBaseY);
+    ctx.quadraticCurveTo(
+      antennaBaseX + 6, antennaBaseY - 10,
+      antennaBaseX + 4 + Math.sin(this.idleTime * 4 + 1) * 2, antennaBaseY - 14
+    );
+    ctx.lineTo(antennaBaseX + 2 + Math.sin(this.idleTime * 4 + 1) * 2, antennaBaseY - 13);
+    ctx.quadraticCurveTo(
+      antennaBaseX + 4, antennaBaseY - 8,
+      antennaBaseX, antennaBaseY
+    );
+    ctx.fill();
+
+    // === FRONT ARM (drawn after body, in front, supporting the bazooka) ===
+    ctx.fillStyle = shadowColor;
+    const frontGripX = bazookaStartX + Math.cos(angleRad) * 14;
+    const frontGripY = bazookaStartY - Math.sin(angleRad) * 14;
+
+    ctx.beginPath();
+    ctx.moveTo(thoraxX + direction * 4, thoraxY + 2);
+    ctx.quadraticCurveTo(
+      thoraxX + direction * 2, thoraxY - 2,
+      frontGripX, frontGripY + 4
+    );
+    ctx.lineTo(frontGripX + 2, frontGripY + 6);
+    ctx.quadraticCurveTo(
+      thoraxX + direction * 3, thoraxY,
+      thoraxX + direction * 5, thoraxY + 4
+    );
+    ctx.fill();
 
     // Draw spark particles
     for (const particle of this.sparkParticles) {
@@ -1049,13 +1056,6 @@ export class Tank {
       ctx.beginPath();
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
-
-      ctx.strokeStyle = `rgba(255, 200, 100, ${alpha * 0.5})`;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(particle.x, particle.y);
-      ctx.lineTo(particle.x - particle.vx * 0.02, particle.y - particle.vy * 0.02);
-      ctx.stroke();
     }
 
     // Draw fire particles (critical health)
@@ -1074,41 +1074,30 @@ export class Tank {
 
     // === CURRENT PLAYER INDICATOR ===
     if (isCurrentPlayer) {
-      // Double chevron indicator (more stylized)
       const arrowBounce = Math.sin(this.idleTime * 3) * 3;
-      const chevronY = turretY - 16 + arrowBounce;
+      const chevronY = headY - headRadius - 14 + arrowBounce;
 
-      // Outer chevron
-      ctx.strokeStyle = '#FFF';
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+      ctx.fillStyle = '#FFF';
       ctx.beginPath();
-      ctx.moveTo(this.x - 8, chevronY - 6);
-      ctx.lineTo(this.x, chevronY);
-      ctx.lineTo(this.x + 8, chevronY - 6);
-      ctx.stroke();
-
-      // Inner chevron
-      ctx.beginPath();
-      ctx.moveTo(this.x - 6, chevronY - 12);
-      ctx.lineTo(this.x, chevronY - 6);
-      ctx.lineTo(this.x + 6, chevronY - 12);
-      ctx.stroke();
-
-      ctx.lineCap = 'butt';
-      ctx.lineJoin = 'miter';
+      ctx.moveTo(headX - 6, chevronY - 8);
+      ctx.lineTo(headX, chevronY);
+      ctx.lineTo(headX + 6, chevronY - 8);
+      ctx.lineTo(headX + 4, chevronY - 8);
+      ctx.lineTo(headX, chevronY - 3);
+      ctx.lineTo(headX - 4, chevronY - 8);
+      ctx.closePath();
+      ctx.fill();
     }
 
-    // === HEALTH BAR (Rounded, clean, wider) ===
-    const healthBarWidth = bodyWidth - 4;
-    const healthBarHeight = 6;
-    const healthBarY = turretY - 14;
+    // === HEALTH BAR ===
+    const healthBarWidth = 32;
+    const healthBarHeight = 5;
+    const healthBarY = headY - headRadius - 12;
 
     // Background
-    ctx.fillStyle = '#222';
+    ctx.fillStyle = '#333';
     ctx.beginPath();
-    ctx.roundRect(this.x - healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight, 3);
+    ctx.roundRect(headX - healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight, 2);
     ctx.fill();
 
     // Health fill
@@ -1116,34 +1105,23 @@ export class Tank {
     ctx.fillStyle = healthColor;
     ctx.beginPath();
     ctx.roundRect(
-      this.x - healthBarWidth / 2 + 1,
+      headX - healthBarWidth / 2 + 1,
       healthBarY + 1,
       (healthBarWidth - 2) * healthPercent,
       healthBarHeight - 2,
-      2
+      1
     );
     ctx.fill();
-
-    // Health bar outline
-    ctx.strokeStyle = '#111';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(this.x - healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight, 3);
-    ctx.stroke();
-
-    // Health bar shine
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.fillRect(this.x - healthBarWidth / 2 + 2, healthBarY + 1, (healthBarWidth - 4) * healthPercent, 2);
 
     ctx.restore();
   }
 
   private renderDestroyed(ctx: CanvasRenderingContext2D): void {
-    // Destruction flash (larger and brighter)
+    // Destruction flash
     if (this.destructionFlash > 0) {
       const flashGradient = ctx.createRadialGradient(
-        this.x, this.y - TANK_HEIGHT / 2, 0,
-        this.x, this.y - TANK_HEIGHT / 2, TANK_WIDTH * 3
+        this.x, this.y - 20, 0,
+        this.x, this.y - 20, 60
       );
       flashGradient.addColorStop(0, `rgba(255, 255, 255, ${this.destructionFlash})`);
       flashGradient.addColorStop(0.2, `rgba(255, 255, 200, ${this.destructionFlash * 0.8})`);
@@ -1151,11 +1129,11 @@ export class Tank {
       flashGradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
       ctx.fillStyle = flashGradient;
       ctx.beginPath();
-      ctx.arc(this.x, this.y - TANK_HEIGHT / 2, TANK_WIDTH * 3, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y - 20, 60, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Draw destruction debris (chunky cartoon pieces)
+    // Draw destruction debris (ant body parts)
     for (const debris of this.destructionDebris) {
       const alpha = Math.min(1, debris.life);
       ctx.save();
@@ -1163,119 +1141,128 @@ export class Tank {
       ctx.rotate(debris.rotation);
       ctx.globalAlpha = alpha;
 
-      // Rounded debris pieces
       ctx.fillStyle = debris.color;
       ctx.beginPath();
-      ctx.roundRect(-debris.size / 2, -debris.size / 2, debris.size, debris.size, debris.size / 4);
+      ctx.ellipse(0, 0, debris.size / 2, debris.size / 3, 0, 0, Math.PI * 2);
       ctx.fill();
-
-      // Debris outline
-      ctx.strokeStyle = this.darkenColor(debris.color, 40);
-      ctx.lineWidth = 1;
-      ctx.stroke();
 
       ctx.restore();
     }
 
-    // During death animation stages 1-2, show the tank popping up
+    // During death animation stages 1-2, show the ant tumbling
     if (this.deathAnimationStage === 1 || this.deathAnimationStage === 2) {
       ctx.save();
       ctx.translate(this.x, this.y + this.deathPopY);
 
-      // Add rotation wobble during pop
       if (this.deathAnimationStage === 2) {
-        const wobble = Math.sin(this.idleTime * 15) * 0.15;
-        ctx.rotate(wobble);
+        const wobble = Math.sin(this.idleTime * 15) * 0.4;
+        ctx.rotate(wobble + 0.3);
       }
 
-      // Flash effect during stage 1
-      const tankColor = this.deathAnimationStage === 1 ? '#fff' : this.darkenColor(this.color, 30);
-      const shadowColor = this.deathAnimationStage === 1 ? '#ddd' : this.darkenColor(this.color, 60);
+      // Black body (flash white during stage 1)
+      const bodyColor = this.deathAnimationStage === 1 ? '#fff' : '#1a1a1a';
+      ctx.fillStyle = bodyColor;
 
-      // Simplified tank body (rounded)
-      ctx.fillStyle = shadowColor;
+      // Horizontal abdomen
       ctx.beginPath();
-      ctx.roundRect(-TANK_WIDTH / 2 + 4, -TANK_HEIGHT + 4, TANK_WIDTH - 8, TANK_HEIGHT - 6, 6);
+      ctx.ellipse(-8, -10, 10, 6, 0.2, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = tankColor;
+      // Thorax angled up
       ctx.beginPath();
-      ctx.roundRect(-TANK_WIDTH / 2 + 2, -TANK_HEIGHT + 2, TANK_WIDTH - 4, TANK_HEIGHT - 6, 6);
+      ctx.ellipse(4, -18, 6, 8, -0.4, 0, Math.PI * 2);
       ctx.fill();
 
-      // X eyes (defeated look)
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2;
-      // Left X
+      // Head
       ctx.beginPath();
-      ctx.moveTo(-8, -TANK_HEIGHT / 2 - 2);
-      ctx.lineTo(-4, -TANK_HEIGHT / 2 + 2);
-      ctx.moveTo(-4, -TANK_HEIGHT / 2 - 2);
-      ctx.lineTo(-8, -TANK_HEIGHT / 2 + 2);
-      ctx.stroke();
-      // Right X
+      ctx.arc(12, -26, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Helmet (team color)
+      ctx.fillStyle = this.deathAnimationStage === 1 ? '#fff' : this.darkenColor(this.color, 30);
       ctx.beginPath();
-      ctx.moveTo(4, -TANK_HEIGHT / 2 - 2);
-      ctx.lineTo(8, -TANK_HEIGHT / 2 + 2);
-      ctx.moveTo(8, -TANK_HEIGHT / 2 - 2);
-      ctx.lineTo(4, -TANK_HEIGHT / 2 + 2);
-      ctx.stroke();
+      ctx.ellipse(12, -31, 9, 5, 0, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      // X eye
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('x', 14, -24);
+
+      // Legs flailing (black)
+      ctx.fillStyle = '#0a0a0a';
+      for (let i = 0; i < 4; i++) {
+        const legAngle = Math.sin(this.idleTime * 12 + i) * 0.5;
+        ctx.save();
+        ctx.translate(-8 + i * 3, -8);
+        ctx.rotate(legAngle + 0.8);
+        ctx.beginPath();
+        ctx.ellipse(6, 0, 5, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
 
       ctx.restore();
     } else {
-      // Draw destroyed tank wreckage (cute cartoon style)
-      const wreckY = this.y - 8;
+      // Fallen ant wreckage
+      const wreckY = this.y - 4;
 
-      // Wreck shadow
+      // Shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
       ctx.beginPath();
-      ctx.ellipse(this.x + 2, this.y + 2, TANK_WIDTH / 2 - 5, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(this.x, this.y + 1, 20, 4, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Flattened/crushed body
-      ctx.fillStyle = '#444';
+      // Black body for dead ant
+      ctx.fillStyle = '#1a1a1a';
+
+      // Abdomen lying flat
       ctx.beginPath();
-      ctx.roundRect(this.x - TANK_WIDTH / 2 + 5, wreckY, TANK_WIDTH - 10, 8, 3);
+      ctx.ellipse(this.x - 10, wreckY, 10, 4, 0.1, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = '#222';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Bent barrel sticking out
-      ctx.fillStyle = '#555';
-      ctx.save();
-      ctx.translate(this.x + 5, wreckY + 2);
-      ctx.rotate(0.3);
+      // Thorax
       ctx.beginPath();
-      ctx.roundRect(0, -3, 12, 6, 2);
-      ctx.fill();
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.restore();
-
-      // Smoke puffs
-      const smokeOffset = Math.sin(this.idleTime * 2) * 2;
-      ctx.fillStyle = 'rgba(80, 80, 80, 0.5)';
-      ctx.beginPath();
-      ctx.arc(this.x - 5, wreckY - 8 + smokeOffset, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(this.x + 3, wreckY - 14 + smokeOffset * 0.7, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(this.x - 2, wreckY - 20 + smokeOffset * 0.5, 4, 0, Math.PI * 2);
+      ctx.ellipse(this.x + 2, wreckY - 1, 6, 3, -0.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Small fire flickers
-      if (Math.random() > 0.4) {
-        const fireX = this.x + (Math.random() - 0.5) * 15;
-        ctx.fillStyle = `rgba(255, ${150 + Math.random() * 100}, 50, 0.8)`;
+      // Head rolled over
+      ctx.beginPath();
+      ctx.arc(this.x + 14, wreckY, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Helmet nearby (team color)
+      ctx.fillStyle = this.darkenColor(this.color, 40);
+      ctx.beginPath();
+      ctx.ellipse(this.x + 22, wreckY + 2, 5, 2, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Legs sprawled (black)
+      ctx.fillStyle = '#0a0a0a';
+      for (let i = 0; i < 4; i++) {
+        const lx = this.x - 14 + i * 6;
+        const angle = (i % 2 === 0) ? 0.3 : -0.3;
         ctx.beginPath();
-        ctx.arc(fireX, wreckY - 2, 2 + Math.random() * 2, 0, Math.PI * 2);
+        ctx.ellipse(lx, wreckY + 2 + (i % 2), 5, 1.5, angle, 0, Math.PI * 2);
         ctx.fill();
       }
+
+      // Broken bazooka
+      ctx.fillStyle = '#3D4A23';
+      ctx.beginPath();
+      ctx.roundRect(this.x - 22, wreckY + 4, 14, 5, 2);
+      ctx.fill();
+
+      // Smoke
+      const smokeOffset = Math.sin(this.idleTime * 2) * 2;
+      ctx.fillStyle = 'rgba(80, 80, 80, 0.4)';
+      ctx.beginPath();
+      ctx.arc(this.x, wreckY - 8 + smokeOffset, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(this.x + 6, wreckY - 14 + smokeOffset * 0.7, 3, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 

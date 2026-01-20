@@ -1,7 +1,7 @@
 import { MAP_HEIGHT } from '../constants.ts';
 import { PowerUpType, PowerUpConfig, POWERUP_CONFIGS } from './PowerUpTypes.ts';
 import { Terrain } from '../Terrain.ts';
-import { Tank } from '../Tank.ts';
+import { Ant } from '../Ant.ts';
 
 interface SparkleParticle {
   x: number;
@@ -50,7 +50,7 @@ export class PowerUp {
     this.collectAnimTime = 0;
   }
 
-  update(deltaTime: number, tanks: Tank[]): Tank | null {
+  update(deltaTime: number, ants: Ant[]): Ant | null {
     if (!this.active) {
       // Update collection animation
       if (this.collected) {
@@ -87,17 +87,17 @@ export class PowerUp {
     }
     this.sparkleParticles = this.sparkleParticles.filter(p => p.life > 0);
 
-    // Check collision with tanks
-    for (const tank of tanks) {
-      if (!tank.isAlive) continue;
+    // Check collision with ants
+    for (const ant of ants) {
+      if (!ant.isAlive) continue;
 
-      const dx = tank.x - this.x;
-      const dy = (tank.y - 10) - this.y;
+      const dx = ant.x - this.x;
+      const dy = (ant.y - 10) - this.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance < 35) { // Collection radius
         this.collect();
-        return tank;
+        return ant;
       }
     }
 
