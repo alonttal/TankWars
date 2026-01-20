@@ -786,30 +786,32 @@ export class Ant {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
     ctx.fillRect((baseX - 8) * ANT_PIXEL_SCALE, (baseY + 1) * ANT_PIXEL_SCALE, 18 * ANT_PIXEL_SCALE, 2 * ANT_PIXEL_SCALE);
 
-    // === DRAW BAZOOKA (behind ant) ===
-    const bazookaColor = '#4A5D23';
-    const bazookaLight = '#5C7A29';
-    const bazookaDark = '#2D3A16';
-
     // Shoulder position (where bazooka attaches)
     const shoulderX = baseX + direction * 2;
     const shoulderY = baseY - 10 + breatheOffset;
 
-    // Draw bazooka tube along angle (thicker tube)
-    for (let i = 0; i < bazookaLen; i++) {
-      const px = shoulderX + Math.round(Math.cos(angleRad) * i * direction);
-      const py = shoulderY - Math.round(Math.sin(angleRad) * i);
-      // Main tube
-      this.drawPixel(ctx, px, py, bazookaColor);
-      this.drawPixel(ctx, px, py - 1, bazookaLight);
-      this.drawPixel(ctx, px, py + 1, bazookaDark);
+    // === DRAW BAZOOKA (only on current player's turn) ===
+    if (isCurrentPlayer) {
+      const bazookaColor = '#4A5D23';
+      const bazookaLight = '#5C7A29';
+      const bazookaDark = '#2D3A16';
+
+      // Draw bazooka tube along angle (thicker tube)
+      for (let i = 0; i < bazookaLen; i++) {
+        const px = shoulderX + Math.round(Math.cos(angleRad) * i * direction);
+        const py = shoulderY - Math.round(Math.sin(angleRad) * i);
+        // Main tube
+        this.drawPixel(ctx, px, py, bazookaColor);
+        this.drawPixel(ctx, px, py - 1, bazookaLight);
+        this.drawPixel(ctx, px, py + 1, bazookaDark);
+      }
+      // Muzzle opening
+      const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * bazookaLen * direction);
+      const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * bazookaLen);
+      this.drawPixel(ctx, muzzleX, muzzleY, bazookaDark);
+      this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
+      this.drawPixel(ctx, muzzleX, muzzleY + 1, '#1a1a1a');
     }
-    // Muzzle opening
-    const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * bazookaLen * direction);
-    const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * bazookaLen);
-    this.drawPixel(ctx, muzzleX, muzzleY, bazookaDark);
-    this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
-    this.drawPixel(ctx, muzzleX, muzzleY + 1, '#1a1a1a');
 
     // === BACK LEGS (6 legs total for ant, showing 4) ===
     // Rear pair
@@ -925,11 +927,13 @@ export class Ant {
     this.drawPixel(ctx, baseX + direction * 8 - antennaWave, baseY - 19 + breatheOffset, bodyDark);
     this.drawPixel(ctx, baseX + direction * 8 - antennaWave, baseY - 20 + breatheOffset, bodyColor);
 
-    // === ARM holding bazooka ===
-    const armX = shoulderX + Math.round(Math.cos(angleRad) * 4 * direction);
-    const armY = shoulderY - Math.round(Math.sin(angleRad) * 4) + 1;
-    this.drawPixel(ctx, armX, armY, bodyDark);
-    this.drawPixel(ctx, armX, armY + 1, bodyDark);
+    // === ARM holding bazooka (only on current player's turn) ===
+    if (isCurrentPlayer) {
+      const armX = shoulderX + Math.round(Math.cos(angleRad) * 4 * direction);
+      const armY = shoulderY - Math.round(Math.sin(angleRad) * 4) + 1;
+      this.drawPixel(ctx, armX, armY, bodyDark);
+      this.drawPixel(ctx, armX, armY + 1, bodyDark);
+    }
 
     // === CURRENT PLAYER INDICATOR (arrow pointing down) ===
     if (isCurrentPlayer) {
