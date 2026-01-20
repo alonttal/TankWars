@@ -175,8 +175,21 @@ export class Terrain {
   // Perlin noise permutation table
   private perm: number[];
 
+  // Cache of surface Y values for each bitmap X (avoids scanning from top each time)
+  private surfaceYCache: Int16Array;
+
+  // Pre-generated noise texture at 1/4 resolution
+  private noiseTexture: Float32Array | null = null;
+  private noiseTextureWidth: number = 0;
+  private noiseTextureHeight: number = 0;
+
+  // Color lookup table for depth bands (0-150 depth values)
+  private colorLUT: Uint8Array | null = null;
+
   constructor() {
     this.terrainBitmap = new Uint8Array(this.bitmapWidth * this.bitmapHeight);
+    this.surfaceYCache = new Int16Array(this.bitmapWidth);
+    this.surfaceYCache.fill(-1);
     this.clouds = [];
     this.windParticles = [];
     this.ambientDust = [];
@@ -320,6 +333,100 @@ export class Terrain {
     }
   }
 
+  // Pre-generate noise texture at 1/4 resolution for rendering
+  private generateNoiseTexture(): void {
+    // Generate at 1/4 resolution (400x225 for 1600x900)
+    this.noiseTextureWidth = Math.ceil(MAP_WIDTH / 4);
+    this.noiseTextureHeight = Math.ceil(MAP_HEIGHT / 4);
+    this.noiseTexture = new Float32Array(this.noiseTextureWidth * this.noiseTextureHeight);
+
+    for (let y = 0; y < this.noiseTextureHeight; y++) {
+      for (let x = 0; x < this.noiseTextureWidth; x++) {
+        // Sample at world coordinates (multiply by 4 to match original scale)
+        const worldX = x * 4;
+        const worldY = y * 4;
+        const noiseVal = this.octavePerlin(worldX * 0.05, worldY * 0.05, 2, 0.5);
+        this.noiseTexture[y * this.noiseTextureWidth + x] = noiseVal * 15;
+      }
+    }
+  }
+
+  // Sample from pre-generated noise texture with bilinear interpolation
+  private sampleNoiseTexture(x: number, y: number): number {
+    if (!this.noiseTexture) return 0;
+
+    // Convert to noise texture coordinates
+    const nx = x / 4;
+    const ny = y / 4;
+
+    // Clamp to texture bounds
+    const x0 = Math.max(0, Math.min(this.noiseTextureWidth - 1, Math.floor(nx)));
+    const y0 = Math.max(0, Math.min(this.noiseTextureHeight - 1, Math.floor(ny)));
+    const x1 = Math.min(this.noiseTextureWidth - 1, x0 + 1);
+    const y1 = Math.min(this.noiseTextureHeight - 1, y0 + 1);
+
+    // Bilinear interpolation weights
+    const fx = nx - x0;
+    const fy = ny - y0;
+
+    // Sample four corners
+    const v00 = this.noiseTexture[y0 * this.noiseTextureWidth + x0];
+    const v10 = this.noiseTexture[y0 * this.noiseTextureWidth + x1];
+    const v01 = this.noiseTexture[y1 * this.noiseTextureWidth + x0];
+    const v11 = this.noiseTexture[y1 * this.noiseTextureWidth + x1];
+
+    // Bilinear interpolation
+    const v0 = v00 + (v10 - v00) * fx;
+    const v1 = v01 + (v11 - v01) * fx;
+    return v0 + (v1 - v0) * fy;
+  }
+
+  // Pre-generate color lookup table for depth bands (0-150 depth values)
+  private generateColorLUT(): void {
+    // Parse theme colors
+    const deepRock = this.parseColor(this.theme.deepRock);
+    const darkSoil = this.parseColor(this.theme.darkSoil);
+    const mainSoil = this.parseColor(this.theme.mainSoil);
+    const topSoil = this.parseColor(this.theme.topSoil);
+
+    // LUT stores RGB for depths 0-150 (3 bytes per entry = 453 bytes)
+    const maxDepth = 151;
+    this.colorLUT = new Uint8Array(maxDepth * 3);
+
+    for (let dist = 0; dist < maxDepth; dist++) {
+      let r: number, g: number, b: number;
+
+      if (dist < 4) {
+        r = topSoil.r;
+        g = topSoil.g;
+        b = topSoil.b;
+      } else if (dist < 20) {
+        const t = (dist - 4) / 16;
+        r = topSoil.r + (mainSoil.r - topSoil.r) * t;
+        g = topSoil.g + (mainSoil.g - topSoil.g) * t;
+        b = topSoil.b + (mainSoil.b - topSoil.b) * t;
+      } else if (dist < 60) {
+        const t = (dist - 20) / 40;
+        r = mainSoil.r + (darkSoil.r - mainSoil.r) * t;
+        g = mainSoil.g + (darkSoil.g - mainSoil.g) * t;
+        b = mainSoil.b + (darkSoil.b - mainSoil.b) * t;
+      } else if (dist < 120) {
+        const t = (dist - 60) / 60;
+        r = darkSoil.r + (deepRock.r - darkSoil.r) * t;
+        g = darkSoil.g + (deepRock.g - darkSoil.g) * t;
+        b = darkSoil.b + (deepRock.b - darkSoil.b) * t;
+      } else {
+        r = deepRock.r;
+        g = deepRock.g;
+        b = deepRock.b;
+      }
+
+      this.colorLUT[dist * 3] = Math.floor(r);
+      this.colorLUT[dist * 3 + 1] = Math.floor(g);
+      this.colorLUT[dist * 3 + 2] = Math.floor(b);
+    }
+  }
+
   private generateClouds(): void {
     this.clouds = [];
     const cloudCount = 6 + Math.floor(Math.random() * 4);
@@ -358,6 +465,15 @@ export class Terrain {
     this.generateOverhangs();
     this.generateArches();
     this.generateSurfaceHoles();
+
+    // Build surface Y cache after all terrain modifications are done
+    this.rebuildSurfaceYCache();
+
+    // Pre-generate noise texture for rendering
+    this.generateNoiseTexture();
+
+    // Pre-generate color lookup table
+    this.generateColorLUT();
 
     // Initialize terrain cache
     this.terrainCache = new OffscreenCanvas(MAP_WIDTH, MAP_HEIGHT);
@@ -460,13 +576,19 @@ export class Terrain {
 
   // Stage 2: Carve caves using cellular automata
   private generateCaves(): void {
+    const size = this.bitmapWidth * this.bitmapHeight;
+
+    // Use two Uint8Array buffers and swap between them (0 = solid, 1 = cave)
+    let caveBuffer = new Uint8Array(size);
+    let swapBuffer = new Uint8Array(size);
+
     // First pass: seed caves using 2D noise (all in bitmap coordinates)
-    const caveNoise: boolean[][] = [];
     for (let by = 0; by < this.bitmapHeight; by++) {
-      caveNoise[by] = [];
+      const rowOffset = by * this.bitmapWidth;
       for (let bx = 0; bx < this.bitmapWidth; bx++) {
+        const idx = rowOffset + bx;
         // Only create cave seeds in existing terrain
-        if (this.getBitmapCell(bx, by) > 0) {
+        if (this.terrainBitmap[idx] > 0) {
           const worldX = bx * TERRAIN_SCALE;
           const worldY = by * TERRAIN_SCALE;
           const noise = this.octavePerlin(worldX * 0.01, worldY * 0.01, 3, 0.5);
@@ -478,32 +600,34 @@ export class Terrain {
 
           // Cave threshold varies with depth
           const threshold = CAVE_DENSITY - depthFactor * 0.2;
-          caveNoise[by][bx] = noise < threshold - 0.5;
+          caveBuffer[idx] = noise < threshold - 0.5 ? 1 : 0;
         } else {
-          caveNoise[by][bx] = false;
+          caveBuffer[idx] = 0;
         }
       }
     }
 
     // Cellular automata iterations to smooth caves
     for (let iter = 0; iter < CAVE_ITERATIONS; iter++) {
-      const newCaveNoise: boolean[][] = [];
       for (let by = 0; by < this.bitmapHeight; by++) {
-        newCaveNoise[by] = [];
+        const rowOffset = by * this.bitmapWidth;
         for (let bx = 0; bx < this.bitmapWidth; bx++) {
-          if (this.getBitmapCell(bx, by) === 0) {
-            newCaveNoise[by][bx] = false;
+          const idx = rowOffset + bx;
+          if (this.terrainBitmap[idx] === 0) {
+            swapBuffer[idx] = 0;
             continue;
           }
 
           // Count solid neighbors in 5x5 area
           let solidNeighbors = 0;
           for (let dy = -2; dy <= 2; dy++) {
+            const ny = by + dy;
+            if (ny < 0 || ny >= this.bitmapHeight) continue;
+            const neighborRowOffset = ny * this.bitmapWidth;
             for (let dx = -2; dx <= 2; dx++) {
-              const ny = by + dy;
               const nx = bx + dx;
-              if (ny >= 0 && ny < this.bitmapHeight && nx >= 0 && nx < this.bitmapWidth) {
-                if (!caveNoise[ny]?.[nx]) {
+              if (nx >= 0 && nx < this.bitmapWidth) {
+                if (caveBuffer[neighborRowOffset + nx] === 0) {
                   solidNeighbors++;
                 }
               }
@@ -511,20 +635,20 @@ export class Terrain {
           }
 
           // If too few solid neighbors, this becomes a cave
-          newCaveNoise[by][bx] = solidNeighbors < 15;
+          swapBuffer[idx] = solidNeighbors < 15 ? 1 : 0;
         }
       }
-      for (let by = 0; by < this.bitmapHeight; by++) {
-        for (let bx = 0; bx < this.bitmapWidth; bx++) {
-          caveNoise[by][bx] = newCaveNoise[by][bx];
-        }
-      }
+      // Swap buffers
+      const temp = caveBuffer;
+      caveBuffer = swapBuffer;
+      swapBuffer = temp;
     }
 
     // Apply caves to terrain - carve them out (with thickness check)
     for (let by = 0; by < this.bitmapHeight; by++) {
+      const rowOffset = by * this.bitmapWidth;
       for (let bx = 0; bx < this.bitmapWidth; bx++) {
-        if (caveNoise[by]?.[bx]) {
+        if (caveBuffer[rowOffset + bx] === 1) {
           // Don't carve too close to surface
           const surfaceBY = this.findSurfaceBY(bx);
           if (by > surfaceBY + 8 && this.canCarve(bx, by)) {
@@ -535,22 +659,56 @@ export class Terrain {
     }
   }
 
-  // Helper to find surface BY (bitmap Y) at a given bitmap X
+  // Helper to find surface BY (bitmap Y) at a given bitmap X - direct scan (used during generation)
   private findSurfaceBY(bx: number): number {
+    if (bx < 0 || bx >= this.bitmapWidth) return -1;
     for (let by = 0; by < this.bitmapHeight; by++) {
-      if (this.getBitmapCell(bx, by) > 0) {
+      if (this.terrainBitmap[by * this.bitmapWidth + bx] > 0) {
         return by;
       }
     }
     return -1;
   }
 
+  // Rebuild the entire surface Y cache (call after terrain generation or major changes)
+  private rebuildSurfaceYCache(): void {
+    for (let bx = 0; bx < this.bitmapWidth; bx++) {
+      this.surfaceYCache[bx] = -1;
+      for (let by = 0; by < this.bitmapHeight; by++) {
+        if (this.terrainBitmap[by * this.bitmapWidth + bx] > 0) {
+          this.surfaceYCache[bx] = by;
+          break;
+        }
+      }
+    }
+  }
+
+  // Update surface Y cache for a range of bitmap X coordinates (call after crater)
+  private updateSurfaceYCacheRange(startBX: number, endBX: number): void {
+    const minBX = Math.max(0, startBX);
+    const maxBX = Math.min(this.bitmapWidth - 1, endBX);
+    for (let bx = minBX; bx <= maxBX; bx++) {
+      this.surfaceYCache[bx] = -1;
+      for (let by = 0; by < this.bitmapHeight; by++) {
+        if (this.terrainBitmap[by * this.bitmapWidth + bx] > 0) {
+          this.surfaceYCache[bx] = by;
+          break;
+        }
+      }
+    }
+  }
+
   // Stage 3: Generate overhangs by horizontal displacement
   private generateOverhangs(): void {
-    // Create a temporary copy of the bitmap
-    const tempBitmap = new Uint8Array(this.terrainBitmap);
+    // Use a single-row buffer instead of copying the entire bitmap
+    const rowBuffer = new Uint8Array(this.bitmapWidth);
 
     for (let by = 0; by < this.bitmapHeight; by++) {
+      const rowOffset = by * this.bitmapWidth;
+
+      // Copy current row to buffer
+      rowBuffer.set(this.terrainBitmap.subarray(rowOffset, rowOffset + this.bitmapWidth));
+
       // Displacement varies with y using sine wave and noise (in bitmap cells)
       const worldY = by * TERRAIN_SCALE;
       const waveDisplacement = Math.sin(worldY * 0.03) * (OVERHANG_STRENGTH / TERRAIN_SCALE);
@@ -560,10 +718,9 @@ export class Terrain {
       for (let bx = 0; bx < this.bitmapWidth; bx++) {
         const srcBX = bx - totalDisplacement;
         if (srcBX >= 0 && srcBX < this.bitmapWidth) {
-          const srcValue = tempBitmap[by * this.bitmapWidth + srcBX];
-          this.terrainBitmap[by * this.bitmapWidth + bx] = srcValue;
+          this.terrainBitmap[rowOffset + bx] = rowBuffer[srcBX];
         } else {
-          this.terrainBitmap[by * this.bitmapWidth + bx] = 0;
+          this.terrainBitmap[rowOffset + bx] = 0;
         }
       }
     }
@@ -640,31 +797,27 @@ export class Terrain {
     return horizontalOk || verticalOk;
   }
 
-  // Helper to find surface Y at a given X (returns world coordinates)
+  // Helper to find surface Y at a given X (returns world coordinates) - uses cache
   private findSurfaceY(x: number): number {
     const bx = Math.floor(Math.max(0, Math.min(this.bitmapWidth - 1, x / TERRAIN_SCALE)));
-    for (let by = 0; by < this.bitmapHeight; by++) {
-      if (this.terrainBitmap[by * this.bitmapWidth + bx] > 0) {
-        return by * TERRAIN_SCALE; // Return world Y coordinate
-      }
-    }
-    return -1; // No terrain at this x
+    const surfaceBY = this.surfaceYCache[bx];
+    return surfaceBY >= 0 ? surfaceBY * TERRAIN_SCALE : -1;
   }
 
   getHeightAt(x: number): number {
     const bx = Math.floor(Math.max(0, Math.min(this.bitmapWidth - 1, x / TERRAIN_SCALE)));
-    // Scan column from top to find first solid cell
-    for (let by = 0; by < this.bitmapHeight; by++) {
-      if (this.terrainBitmap[by * this.bitmapWidth + bx] > 0) {
-        return MAP_HEIGHT - by * TERRAIN_SCALE;
-      }
-    }
-    return 0;
+    const surfaceBY = this.surfaceYCache[bx];
+    return surfaceBY >= 0 ? MAP_HEIGHT - surfaceBY * TERRAIN_SCALE : 0;
   }
 
-  // Check if a world position collides with terrain
+  // Check if a world position collides with terrain - inlined for hot path performance
   isPointInTerrain(x: number, y: number): boolean {
-    return this.getPixel(Math.floor(x), Math.floor(y)) > 0;
+    const ix = Math.floor(x / TERRAIN_SCALE);
+    const iy = Math.floor(y / TERRAIN_SCALE);
+    if (ix < 0 || ix >= this.bitmapWidth || iy < 0 || iy >= this.bitmapHeight) {
+      return false;
+    }
+    return this.terrainBitmap[iy * this.bitmapWidth + ix] > 0;
   }
 
   update(deltaTime: number, wind: number = 0): void {
@@ -736,19 +889,23 @@ export class Terrain {
   createCrater(centerX: number, centerY: number, radius: number, depthMultiplier: number = 1.0): void {
     const isDigger = depthMultiplier > 2.0;
     const effectiveRadius = isDigger ? radius * 0.6 : radius;
+    const searchRadius = Math.ceil(effectiveRadius + 10); // Extra margin for noise
 
-    // Carve circular hole through terrain
-    for (let dy = -effectiveRadius - 5; dy <= effectiveRadius + 5; dy++) {
-      for (let dx = -effectiveRadius - 5; dx <= effectiveRadius + 5; dx++) {
-        const distance = Math.sqrt(dx * dx + dy * dy);
+    // Carve circular hole through terrain - use squared distance to avoid sqrt
+    for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+      for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+        const distSq = dx * dx + dy * dy;
 
-        // Add some noise to the edge for natural look
-        const edgeNoise = this.octavePerlin((centerX + dx) * 0.05, (centerY + dy) * 0.05, 2, 0.5) * 8;
-        const adjustedRadius = effectiveRadius + edgeNoise;
+        // Quick rejection using squared distance
+        if (distSq > (effectiveRadius + 8) * (effectiveRadius + 8)) continue;
 
-        if (distance <= adjustedRadius) {
-          const px = Math.floor(centerX + dx);
-          const py = Math.floor(centerY + dy);
+        // Add simple hash-based noise for natural edge (avoids perlin call per pixel)
+        const px = Math.floor(centerX + dx);
+        const py = Math.floor(centerY + dy);
+        const edgeNoise = ((px * 374761393 + py * 668265263) & 0xFFFF) / 0xFFFF * 8 - 4;
+        const adjustedRadiusSq = (effectiveRadius + edgeNoise) * (effectiveRadius + edgeNoise);
+
+        if (distSq <= adjustedRadiusSq) {
           this.clearPixel(px, py);
         }
       }
@@ -761,13 +918,18 @@ export class Terrain {
         const depthY = centerY + d;
         const depthRadius = effectiveRadius * (1 - d / diggerDepth * 0.5);
         for (let dx = -depthRadius; dx <= depthRadius; dx++) {
-          const distance = Math.abs(dx);
-          if (distance <= depthRadius) {
+          // Already using linear distance for 1D case
+          if (Math.abs(dx) <= depthRadius) {
             this.clearPixel(Math.floor(centerX + dx), Math.floor(depthY));
           }
         }
       }
     }
+
+    // Update surface Y cache for affected columns
+    const startBX = Math.floor((centerX - searchRadius) / TERRAIN_SCALE);
+    const endBX = Math.ceil((centerX + searchRadius) / TERRAIN_SCALE);
+    this.updateSurfaceYCacheRange(startBX, endBX);
 
     // Add scorch mark
     const scorchRadius = isDigger ? radius * 0.8 : radius * 1.5;
@@ -894,25 +1056,19 @@ export class Terrain {
     const imageData = ctx.createImageData(MAP_WIDTH, MAP_HEIGHT);
     const data = imageData.data;
 
-    // Parse theme colors
-    const deepRock = this.parseColor(this.theme.deepRock);
-    const darkSoil = this.parseColor(this.theme.darkSoil);
-    const mainSoil = this.parseColor(this.theme.mainSoil);
-    const topSoil = this.parseColor(this.theme.topSoil);
+    // Use pre-generated color LUT
+    const colorLUT = this.colorLUT;
+    if (!colorLUT) return;
 
-    // Pre-compute surface Y for each column (in world coords)
-    const surfaceYCache: number[] = new Array(MAP_WIDTH).fill(MAP_HEIGHT);
+    // Pre-compute surface Y lookup for each world X (use cached bitmap surface values)
+    const surfaceYLookup = new Int16Array(MAP_WIDTH);
     for (let x = 0; x < MAP_WIDTH; x++) {
       const bx = Math.floor(x / TERRAIN_SCALE);
-      for (let by = 0; by < this.bitmapHeight; by++) {
-        if (this.terrainBitmap[by * this.bitmapWidth + bx] > 0) {
-          surfaceYCache[x] = by * TERRAIN_SCALE;
-          break;
-        }
-      }
+      const surfaceBY = this.surfaceYCache[bx];
+      surfaceYLookup[x] = surfaceBY >= 0 ? surfaceBY * TERRAIN_SCALE : MAP_HEIGHT;
     }
 
-    // Render at full resolution with smooth color gradients
+    // Render at full resolution using LUT and pre-generated noise
     for (let y = 0; y < MAP_HEIGHT; y++) {
       for (let x = 0; x < MAP_WIDTH; x++) {
         const bx = Math.floor(x / TERRAIN_SCALE);
@@ -920,47 +1076,23 @@ export class Terrain {
         const bitmapIdx = by * this.bitmapWidth + bx;
 
         if (this.terrainBitmap[bitmapIdx] > 0) {
-          // Calculate distance from surface in world pixels for smooth gradient
-          const surfaceY = surfaceYCache[x];
-          const dist = y - surfaceY;
+          // Calculate distance from surface
+          const surfaceY = surfaceYLookup[x];
+          const dist = Math.max(0, Math.min(150, y - surfaceY));
 
-          // Determine color based on distance from surface with smooth interpolation
-          let color: { r: number; g: number; b: number };
-          if (dist < 4) {
-            color = topSoil;
-          } else if (dist < 20) {
-            const t = (dist - 4) / 16;
-            color = {
-              r: topSoil.r + (mainSoil.r - topSoil.r) * t,
-              g: topSoil.g + (mainSoil.g - topSoil.g) * t,
-              b: topSoil.b + (mainSoil.b - topSoil.b) * t,
-            };
-          } else if (dist < 60) {
-            const t = (dist - 20) / 40;
-            color = {
-              r: mainSoil.r + (darkSoil.r - mainSoil.r) * t,
-              g: mainSoil.g + (darkSoil.g - mainSoil.g) * t,
-              b: mainSoil.b + (darkSoil.b - mainSoil.b) * t,
-            };
-          } else if (dist < 120) {
-            const t = (dist - 60) / 60;
-            color = {
-              r: darkSoil.r + (deepRock.r - darkSoil.r) * t,
-              g: darkSoil.g + (deepRock.g - darkSoil.g) * t,
-              b: darkSoil.b + (deepRock.b - darkSoil.b) * t,
-            };
-          } else {
-            color = deepRock;
-          }
+          // Get color from LUT (3 bytes per entry: R, G, B)
+          const lutIdx = dist * 3;
+          const r = colorLUT[lutIdx];
+          const g = colorLUT[lutIdx + 1];
+          const b = colorLUT[lutIdx + 2];
 
-          // Add per-pixel noise for natural variation
-          const noiseVal = this.octavePerlin(x * 0.05, y * 0.05, 2, 0.5);
-          const noise = noiseVal * 15;
+          // Sample noise from pre-generated texture
+          const noise = this.sampleNoiseTexture(x, y);
 
           const pixelIdx = (y * MAP_WIDTH + x) * 4;
-          data[pixelIdx] = Math.max(0, Math.min(255, Math.floor(color.r + noise)));
-          data[pixelIdx + 1] = Math.max(0, Math.min(255, Math.floor(color.g + noise)));
-          data[pixelIdx + 2] = Math.max(0, Math.min(255, Math.floor(color.b + noise)));
+          data[pixelIdx] = Math.max(0, Math.min(255, r + noise));
+          data[pixelIdx + 1] = Math.max(0, Math.min(255, g + noise));
+          data[pixelIdx + 2] = Math.max(0, Math.min(255, b + noise));
           data[pixelIdx + 3] = 255;
         }
       }
@@ -969,7 +1101,7 @@ export class Terrain {
     // Put the image data
     ctx.putImageData(imageData, 0, 0);
 
-    // Draw edge highlights using canvas drawing
+    // Draw edge highlights using canvas drawing (findSurfaceY now uses cache)
     this.renderTerrainEdges(ctx);
 
     // Draw scattered rocks
