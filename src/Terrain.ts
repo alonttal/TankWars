@@ -249,6 +249,9 @@ export class Terrain {
     // Smooth the terrain
     this.smooth(3);
 
+    // Taper terrain at edges so it slopes down naturally into the sky
+    this.taperEdges(150); // Taper over 150 pixels at each edge
+
     // Generate floating platforms
     this.generateFloatingPlatforms();
 
@@ -334,6 +337,22 @@ export class Terrain {
         newHeightMap[x] = (this.heightMap[x - 1] + this.heightMap[x] + this.heightMap[x + 1]) / 3;
       }
       this.heightMap = newHeightMap;
+    }
+  }
+
+  // Taper terrain at edges so it slopes down naturally into the sky
+  private taperEdges(taperWidth: number): void {
+    for (let x = 0; x < taperWidth; x++) {
+      // Use smooth easing (ease-in-out) for natural slope
+      const t = x / taperWidth;
+      const easedT = t * t * (3 - 2 * t); // Smoothstep function
+
+      // Left edge: scale height from 0 to full
+      this.heightMap[x] *= easedT;
+
+      // Right edge: scale height from full to 0
+      const rightX = MAP_WIDTH - 1 - x;
+      this.heightMap[rightX] *= easedT;
     }
   }
 
@@ -987,6 +1006,29 @@ export class Terrain {
     // Distribute ants evenly across the terrain
     const spacing = MAP_WIDTH / (totalAnts + 1);
     const x = spacing * (index + 1);
+    const y = MAP_HEIGHT - this.getHeightAt(x);
+    return { x, y };
+  }
+
+  // Get spawn position for an ant within a team zone
+  // Team 0 spawns on left side, Team 1 spawns on right side
+  // With padding from map edges and a gap between teams
+  getTeamSpawnPosition(teamIndex: number, antIndexInTeam: number, antsPerTeam: number): { x: number; y: number } {
+    const edgePadding = 100; // Keep ants away from map edges
+    const centerGap = 150; // Gap between teams in the middle
+
+    // Calculate usable width for each team
+    const usableWidth = (MAP_WIDTH - 2 * edgePadding - centerGap) / 2;
+
+    // Team 0: from edgePadding to edgePadding + usableWidth
+    // Team 1: from MAP_WIDTH - edgePadding - usableWidth to MAP_WIDTH - edgePadding
+    const zoneStartX = teamIndex === 0
+      ? edgePadding
+      : MAP_WIDTH - edgePadding - usableWidth;
+
+    // Distribute ants evenly within the team zone
+    const spacing = usableWidth / (antsPerTeam + 1);
+    const x = zoneStartX + spacing * (antIndexInTeam + 1);
     const y = MAP_HEIGHT - this.getHeightAt(x);
     return { x, y };
   }

@@ -83,7 +83,9 @@ export class Ant {
   color: string;
   health: number;
   isAlive: boolean;
-  playerIndex: number;
+  playerIndex: number; // Unique ID across all ants (0-15 for 16 ants)
+  teamIndex: number; // Which team (0 or 1)
+  teamAntIndex: number; // Index within the team (0-7)
   facingRight: boolean;
 
   // Weapon system
@@ -140,11 +142,13 @@ export class Ant {
   private deathPopY: number;
   private deathPopVy: number;
 
-  constructor(x: number, y: number, color: string, playerIndex: number, facingRight: boolean) {
+  constructor(x: number, y: number, color: string, playerIndex: number, facingRight: boolean, teamIndex: number = 0, teamAntIndex: number = 0) {
     this.x = x;
     this.y = y;
     this.color = color;
     this.playerIndex = playerIndex;
+    this.teamIndex = teamIndex;
+    this.teamAntIndex = teamAntIndex;
     this.facingRight = facingRight;
     this.angle = facingRight ? 45 : 135; // Default angle pointing up and towards center
     this.health = 100;

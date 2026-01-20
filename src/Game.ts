@@ -1,4 +1,4 @@
-import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, BACKGROUND_PARALLAX, MAX_POWER, WIND_STRENGTH_MAX, PLAYER_COLORS, updateCanvasSize, SCALE_X, SCALE_Y, CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.ts';
+import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, BACKGROUND_PARALLAX, MAX_POWER, WIND_STRENGTH_MAX, updateCanvasSize, SCALE_X, SCALE_Y, CANVAS_WIDTH, CANVAS_HEIGHT, NUM_TEAMS, ANTS_PER_TEAM, TEAM_COLORS } from './constants.ts';
 import { Terrain } from './Terrain.ts';
 import { Ant } from './Ant.ts';
 import { Projectile } from './Projectile.ts';
@@ -77,14 +77,17 @@ export class Game {
   private terrain: Terrain;
   private ants: Ant[];
   private explosions: Explosion[];
-  private currentPlayerIndex: number;
+  private currentPlayerIndex: number; // Index into ants array for current ant
+  private currentTeamIndex: number; // Which team's turn (0 or 1)
+  private teamTurnCounts: number[]; // Track rotation within each team
+  private winningTeam: number | null; // Team that won (-1 for draw)
   private wind: number;
   private state: GameState;
   private winner: Ant | null;
   private gameMode: GameMode;
   private ai: AntAI | null;
   private aiThinkingTimer: number;
-  private aiShot: { angle: number; power: number } | null;
+  private aiShot: { angle: number; power: number; target: Ant | null } | null;
 
   // Menu
   private menuItems: MenuItem[];
@@ -196,6 +199,9 @@ export class Game {
     this.ants = [];
     this.explosions = [];
     this.currentPlayerIndex = 0;
+    this.currentTeamIndex = 0;
+    this.teamTurnCounts = [0, 0];
+    this.winningTeam = null;
     this.wind = 0;
     this.state = 'MENU';
     this.winner = null;
@@ -211,8 +217,8 @@ export class Game {
     this.screenFlashIntensity = 0;
     this.screenFlashColor = '#FFF';
     this.hitstopTimer = 0;
-    this.cameraZoom = 0.75;
-    this.targetCameraZoom = 0.75;
+    this.cameraZoom = 0.5;
+    this.targetCameraZoom = 0.5;
     this.cameraOffsetX = 0;
     this.cameraOffsetY = 0;
     this.targetCameraOffsetX = 0;
@@ -588,7 +594,8 @@ export class Game {
   }
 
   private isAITurn(): boolean {
-    return this.gameMode === 'single' && this.currentPlayerIndex === 1;
+    // In single player mode, team 1 is controlled by AI
+    return this.gameMode === 'single' && this.currentTeamIndex === 1;
   }
 
   private resizeCanvas(): void {
@@ -684,7 +691,7 @@ export class Game {
           this.weaponSelector.setEnabled(true);
 
           // Show initial turn banner
-          const turnText = this.gameMode === 'single' ? 'YOUR TURN' : 'PLAYER 1 TURN';
+          const turnText = this.getTurnBannerText();
           this.showTurnBanner(turnText);
         }
       }
@@ -855,7 +862,7 @@ export class Game {
         );
         this.targetCameraOffsetX = clamped.x;
         this.targetCameraOffsetY = clamped.y;
-        this.targetCameraZoom = 0.8; // Slight zoom in when following projectile
+        this.targetCameraZoom = 0.55; // Slight zoom in when following projectile
       } else if (!anyActiveProjectile) {
         // Return camera to current player's tank
         const currentAnt = this.ants[this.currentPlayerIndex];
@@ -867,7 +874,7 @@ export class Game {
           this.targetCameraOffsetX = clamped.x;
           this.targetCameraOffsetY = clamped.y;
         }
-        this.targetCameraZoom = 0.75;
+        this.targetCameraZoom = 0.5;
       }
 
       // Update burn areas
@@ -930,7 +937,7 @@ export class Game {
 
     // Track health before explosion
     const healthBefore = this.ants.map(t => t.health);
-    const shooterIndex = projectile.owner.playerIndex;
+    const shooterTeamIndex = projectile.owner.teamIndex;
 
     // Get damage multiplier from shooter's buffs
     const damageMultiplier = projectile.owner.getDamageMultiplier();
@@ -960,12 +967,14 @@ export class Game {
     this.triggerScreenShake(shakeIntensity);
     this.triggerScreenFlash('#FFA500', 0.5);
 
-    // Track damage dealt and hits
+    // Track damage dealt and hits (only count damage to enemy team)
     let totalDamage = 0;
     let hitCount = 0;
     for (let i = 0; i < this.ants.length; i++) {
-      if (i !== shooterIndex) {
-        const damage = healthBefore[i] - this.ants[i].health;
+      const ant = this.ants[i];
+      // Only count damage dealt to enemy team
+      if (ant.teamIndex !== shooterTeamIndex) {
+        const damage = healthBefore[i] - ant.health;
         if (damage > 0) {
           totalDamage += damage;
           hitCount++;
@@ -973,8 +982,8 @@ export class Game {
           // Spawn floating damage number
           const isCritical = damage >= 40;
           this.floatingTexts.push({
-            x: this.ants[i].x,
-            y: this.ants[i].y - 40,
+            x: ant.x,
+            y: ant.y - 40,
             text: isCritical ? `CRITICAL! -${damage}` : `-${damage}`,
             color: isCritical ? '#FF0000' : '#FF6B6B',
             life: isCritical ? 2.0 : 1.5,
@@ -987,9 +996,9 @@ export class Game {
       }
     }
     if (hitCount > 0) {
-      this.playerStats[shooterIndex].hits++;
+      this.playerStats[shooterTeamIndex].hits++;
     }
-    this.playerStats[shooterIndex].damageDealt += totalDamage;
+    this.playerStats[shooterTeamIndex].damageDealt += totalDamage;
   }
 
   // Helper to apply camera transform with a parallax factor (0 = no movement, 1 = full movement)
@@ -1081,7 +1090,7 @@ export class Game {
     const clamped = this.clampCameraOffset(offsetX, offsetY);
     this.targetCameraOffsetX = clamped.x;
     this.targetCameraOffsetY = clamped.y;
-    this.targetCameraZoom = 0.75;
+    this.targetCameraZoom = 0.5;
 
     // Snap immediately if requested (e.g., at game start)
     if (immediate) {
@@ -1419,8 +1428,8 @@ export class Game {
 
     if (this.winner) {
       const winnerLabel = this.gameMode === 'single'
-        ? (this.winner.playerIndex === 0 ? 'YOU WIN!' : 'CPU WINS!')
-        : `PLAYER ${this.winner.playerIndex + 1} WINS!`;
+        ? (this.winningTeam === 0 ? 'YOU WIN!' : 'CPU WINS!')
+        : `TEAM ${(this.winningTeam ?? 0) + 1} WINS!`;
 
       // Glow effect
       this.ctx.shadowColor = this.winner.color;
@@ -1455,12 +1464,12 @@ export class Game {
     const p1X = BASE_WIDTH / 2 - colWidth;
     const p2X = BASE_WIDTH / 2 + colWidth;
 
-    // Player labels
+    // Team labels
     this.ctx.font = 'bold 16px "Courier New"';
-    this.ctx.fillStyle = this.ants[0]?.color || '#FF6B6B';
-    this.ctx.fillText(this.gameMode === 'single' ? 'YOU' : 'PLAYER 1', p1X, statsY);
-    this.ctx.fillStyle = this.ants[1]?.color || '#4ECB71';
-    this.ctx.fillText(this.gameMode === 'single' ? 'CPU' : 'PLAYER 2', p2X, statsY);
+    this.ctx.fillStyle = TEAM_COLORS[0];
+    this.ctx.fillText(this.gameMode === 'single' ? 'YOUR TEAM' : 'TEAM 1', p1X, statsY);
+    this.ctx.fillStyle = TEAM_COLORS[1];
+    this.ctx.fillText(this.gameMode === 'single' ? 'CPU TEAM' : 'TEAM 2', p2X, statsY);
 
     // Stats rows with staggered slide in
     this.ctx.font = '14px "Courier New"';
@@ -1635,6 +1644,9 @@ export class Game {
     this.floatingTexts = [];
     this.burnAreas = [];
     this.currentPlayerIndex = 0;
+    this.currentTeamIndex = 0;
+    this.teamTurnCounts = [0, 0];
+    this.winningTeam = null;
     this.winner = null;
     this.isChargingPower = false;
     this.powerDirection = 1;
@@ -1653,19 +1665,32 @@ export class Game {
     // Generate new terrain
     this.terrain.generate();
 
-    // Create tanks (always 2 for now)
-    const numPlayers = 2;
+    // Create ants for each team (8 per team, 16 total)
     this.playerStats = [];
     this.hudHealthAnimations = [];
-    for (let i = 0; i < numPlayers; i++) {
-      const pos = this.terrain.getSpawnPosition(i, numPlayers);
-      const facingRight = i < numPlayers / 2;
-      const tank = new Ant(pos.x, pos.y, PLAYER_COLORS[i], i, facingRight);
-      tank.resetWeaponsAndBuffs(); // Ensure weapons/buffs are reset
-      this.ants.push(tank);
+    let antId = 0;
+
+    for (let teamIdx = 0; teamIdx < NUM_TEAMS; teamIdx++) {
+      const teamColor = TEAM_COLORS[teamIdx];
+      const facingRight = teamIdx === 0; // Team 0 faces right, Team 1 faces left
+
+      for (let antIdx = 0; antIdx < ANTS_PER_TEAM; antIdx++) {
+        const pos = this.terrain.getTeamSpawnPosition(teamIdx, antIdx, ANTS_PER_TEAM);
+        const ant = new Ant(pos.x, pos.y, teamColor, antId, facingRight, teamIdx, antIdx);
+        ant.resetWeaponsAndBuffs();
+        this.ants.push(ant);
+        this.hudHealthAnimations.push({ current: 100, target: 100 });
+        antId++;
+      }
+
+      // Add one stats entry per team
       this.playerStats.push({ shotsFired: 0, hits: 0, damageDealt: 0 });
-      this.hudHealthAnimations.push({ current: 100, target: 100 });
     }
+
+    // Set first ant as current
+    this.currentPlayerIndex = 0;
+    // Account for the first turn in team turn counts (so next turn goes to ant 1, not ant 0 again)
+    this.teamTurnCounts[0] = 1;
 
     // Set initial wind
     this.wind = (Math.random() - 0.5) * WIND_STRENGTH_MAX * 2;
@@ -1700,10 +1725,12 @@ export class Game {
     // Calculate center point between all ants (horizontally)
     const centerX = (minX + maxX) / 2;
 
-    // Calculate zoom to fit all ants horizontally with padding
-    // Don't zoom out too much to avoid showing map edges
-    const spanX = maxX - minX + 400; // Add horizontal padding
-    const overviewZoom = Math.max(0.4, Math.min(BASE_WIDTH / spanX, 0.7));
+    // Calculate zoom to fit all ants horizontally
+    // Zoom out as much as needed to show all 16 ants across MAP_WIDTH (4000px)
+    const spanX = maxX - minX + 200;
+    const calculatedZoom = BASE_WIDTH / spanX;
+    // Use calculated zoom, with reasonable bounds
+    const overviewZoom = Math.min(0.5, Math.max(0.1, calculatedZoom));
 
     // Calculate visible area at this zoom level (in world coordinates)
     const visibleHeight = BASE_HEIGHT / overviewZoom;
@@ -1810,39 +1837,47 @@ export class Game {
     this.weaponSelector.setEnabled(false);
     soundManager.playShoot();
 
-    // Track shot fired
-    this.playerStats[this.currentPlayerIndex].shotsFired++;
+    // Track shot fired (use teamIndex for stats)
+    this.playerStats[tank.teamIndex].shotsFired++;
   }
 
   private startAITurn(): void {
     if (!this.ai) return;
 
-    const aiAnt = this.ants[1];
-    const playerAnt = this.ants[0];
+    const aiAnt = this.ants[this.currentPlayerIndex];
+    if (!aiAnt.isAlive) return;
 
-    if (!aiAnt.isAlive || !playerAnt.isAlive) return;
+    // Get alive ants from the enemy team (team 0 for AI which is team 1)
+    const enemyTeamIndex = aiAnt.teamIndex === 0 ? 1 : 0;
+    const enemyAnts = this.getAliveAntsForTeam(enemyTeamIndex);
+    if (enemyAnts.length === 0) return;
+
+    // Select a target - pick closest or random based on difficulty
+    const target = this.ai.selectTarget(aiAnt, enemyAnts);
+    if (!target) return;
 
     // AI selects weapon based on situation
-    this.ai.selectWeapon(aiAnt, playerAnt);
+    this.ai.selectWeapon(aiAnt, target);
 
     // Update weapon selector to show AI's weapon choice
     this.weaponSelector.update(aiAnt);
 
     // Calculate shot
-    this.aiShot = this.ai.calculateShot(aiAnt, playerAnt, this.wind);
+    const shot = this.ai.calculateShot(aiAnt, target, this.wind);
+    this.aiShot = { ...shot, target };
     this.aiThinkingTimer = this.ai.getThinkingTime();
 
     // Update tank barrel to show aiming
-    aiAnt.angle = Math.round(this.aiShot.angle);
+    aiAnt.angle = Math.round(shot.angle);
 
     this.state = 'AI_THINKING';
     this.fireButton.disabled = true;
 
     // Update UI to show AI's angle/power
-    this.angleSlider.value = Math.round(this.aiShot.angle).toString();
-    this.angleValue.textContent = Math.round(this.aiShot.angle).toString();
-    this.powerSlider.value = Math.round(this.aiShot.power).toString();
-    this.powerValue.textContent = Math.round(this.aiShot.power).toString();
+    this.angleSlider.value = Math.round(shot.angle).toString();
+    this.angleValue.textContent = Math.round(shot.angle).toString();
+    this.powerSlider.value = Math.round(shot.power).toString();
+    this.powerValue.textContent = Math.round(shot.power).toString();
   }
 
   private executeAIShot(): void {
@@ -1889,8 +1924,8 @@ export class Game {
     this.state = 'FIRING';
     soundManager.playShoot();
 
-    // Track shot fired
-    this.playerStats[this.currentPlayerIndex].shotsFired++;
+    // Track shot fired (use teamIndex for stats)
+    this.playerStats[tank.teamIndex].shotsFired++;
   }
 
   private endTurn(): void {
@@ -1899,11 +1934,24 @@ export class Game {
       return;
     }
 
-    // Check for game over
-    const aliveAnts = this.ants.filter(t => t.isAlive);
+    // Check for game over - a team loses when all its ants are eliminated
+    const team0Alive = this.getAliveAntsForTeam(0);
+    const team1Alive = this.getAliveAntsForTeam(1);
 
-    if (aliveAnts.length <= 1) {
-      this.winner = aliveAnts.length === 1 ? aliveAnts[0] : null;
+    if (team0Alive.length === 0 || team1Alive.length === 0) {
+      // Determine winning team
+      if (team0Alive.length > 0) {
+        this.winningTeam = 0;
+        this.winner = team0Alive[0]; // First alive ant represents winning team
+      } else if (team1Alive.length > 0) {
+        this.winningTeam = 1;
+        this.winner = team1Alive[0];
+      } else {
+        // Draw - both teams eliminated
+        this.winningTeam = null;
+        this.winner = null;
+      }
+
       this.state = 'GAME_OVER';
       this.fireButton.disabled = true;
 
@@ -1919,7 +1967,7 @@ export class Game {
 
       // Play victory/defeat sound
       const isVictory = this.gameMode === 'single'
-        ? this.winner?.playerIndex === 0
+        ? this.winningTeam === 0
         : true; // In multiplayer, someone always wins
       soundManager.playGameOver(isVictory);
       return;
@@ -1952,38 +2000,80 @@ export class Game {
   }
 
   private nextPlayer(): void {
-    do {
-      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.ants.length;
-    } while (!this.ants[this.currentPlayerIndex].isAlive);
+    // Switch to the other team
+    this.currentTeamIndex = (this.currentTeamIndex + 1) % NUM_TEAMS;
+
+    // Find the next alive ant for this team
+    const nextAnt = this.getNextAntForTeam(this.currentTeamIndex);
+
+    if (!nextAnt) {
+      // No alive ants on this team - this shouldn't happen if endTurn checks properly
+      return;
+    }
+
+    this.currentPlayerIndex = nextAnt.playerIndex;
+
+    // Increment turn count for this team (for round-robin cycling)
+    this.teamTurnCounts[this.currentTeamIndex]++;
 
     // Reset turn timer
     this.turnTimeRemaining = this.maxTurnTime;
 
     // Update angle slider to current tank's angle
-    const tank = this.ants[this.currentPlayerIndex];
-    this.angleSlider.value = tank.angle.toString();
-    this.angleValue.textContent = tank.angle.toString();
+    this.angleSlider.value = nextAnt.angle.toString();
+    this.angleValue.textContent = nextAnt.angle.toString();
 
     // Show turn banner
-    let turnText: string;
-    if (this.gameMode === 'single') {
-      turnText = this.currentPlayerIndex === 0 ? 'YOUR TURN' : 'CPU TURN';
-    } else {
-      turnText = `PLAYER ${this.currentPlayerIndex + 1} TURN`;
-    }
+    const turnText = this.getTurnBannerText();
     this.showTurnBanner(turnText);
 
     // Focus camera on active player
-    this.focusCameraOnAnt(tank);
+    this.focusCameraOnAnt(nextAnt);
 
     this.updateUI();
   }
 
+  // Get the next alive ant for a team (round-robin based on teamTurnCounts)
+  private getNextAntForTeam(teamIndex: number): Ant | null {
+    const aliveTeamAnts = this.getAliveAntsForTeam(teamIndex);
+    if (aliveTeamAnts.length === 0) return null;
+
+    // Round-robin: use teamTurnCounts to determine which ant goes next
+    const turnIndex = this.teamTurnCounts[teamIndex] % aliveTeamAnts.length;
+    return aliveTeamAnts[turnIndex];
+  }
+
+  // Get all alive ants for a team
+  private getAliveAntsForTeam(teamIndex: number): Ant[] {
+    return this.ants.filter(ant => ant.teamIndex === teamIndex && ant.isAlive);
+  }
+
+  // Get turn banner text based on current ant
+  private getTurnBannerText(): string {
+    const ant = this.ants[this.currentPlayerIndex];
+    if (this.gameMode === 'single') {
+      if (ant.teamIndex === 0) {
+        return `YOUR TURN - ANT ${ant.teamAntIndex + 1}`;
+      } else {
+        return `CPU TURN - ANT ${ant.teamAntIndex + 1}`;
+      }
+    } else {
+      return `TEAM ${ant.teamIndex + 1} - ANT ${ant.teamAntIndex + 1}`;
+    }
+  }
+
   private updateUI(): void {
     const tank = this.ants[this.currentPlayerIndex];
-    const label = this.gameMode === 'single'
-      ? (this.currentPlayerIndex === 0 ? 'Your Turn' : 'CPU Turn')
-      : `Player ${this.currentPlayerIndex + 1}`;
+    let label: string;
+    if (this.gameMode === 'single') {
+      if (tank.teamIndex === 0) {
+        label = `Your Team - Ant ${tank.teamAntIndex + 1}`;
+      } else {
+        label = `CPU Team - Ant ${tank.teamAntIndex + 1}`;
+      }
+    } else {
+      label = `Team ${tank.teamIndex + 1} - Ant ${tank.teamAntIndex + 1}`;
+    }
 
     this.currentPlayerSpan.textContent = label;
     this.currentPlayerSpan.style.color = tank.color;
@@ -2261,87 +2351,124 @@ export class Game {
 
   private renderHUDHealthBars(): void {
     const ctx = this.ctx;
-    const barWidth = 150;
-    const barHeight = 18;
-    const padding = 15;
+    const padding = 10;
+    const teamPanelWidth = 180;
+    const miniBarWidth = 36;
+    const miniBarHeight = 8;
+    const barsPerRow = 4;
+    const barSpacing = 4;
+    const rowSpacing = 12;
 
-    for (let i = 0; i < this.ants.length; i++) {
-      const tank = this.ants[i];
-      const isLeft = i === 0;
-      const barX = isLeft ? padding : BASE_WIDTH - padding - barWidth;
-      const barY = 50;
+    // Draw team panels on left and right
+    for (let teamIdx = 0; teamIdx < NUM_TEAMS; teamIdx++) {
+      const isLeft = teamIdx === 0;
+      const panelX = isLeft ? padding : BASE_WIDTH - padding - teamPanelWidth;
+      const panelY = 40;
 
-      // Update animated health value
-      if (this.hudHealthAnimations[i]) {
-        const anim = this.hudHealthAnimations[i];
-        anim.target = tank.health;
-        const diff = anim.target - anim.current;
-        anim.current += diff * 0.1; // Smooth interpolation
-        if (Math.abs(diff) < 0.1) anim.current = anim.target;
-      }
+      // Get team ants
+      const teamAnts = this.ants.filter(a => a.teamIndex === teamIdx);
+      const aliveCount = teamAnts.filter(a => a.isAlive).length;
 
-      const animatedHealth = this.hudHealthAnimations[i]?.current ?? tank.health;
-      const healthPercent = animatedHealth / 100;
-
-      // Background
+      // Panel background
       ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
       ctx.beginPath();
-      ctx.roundRect(barX - 5, barY - 25, barWidth + 10, barHeight + 35, 5);
+      ctx.roundRect(panelX, panelY, teamPanelWidth, 75, 5);
       ctx.fill();
 
-      // Player label
-      const playerLabel = this.gameMode === 'single'
-        ? (i === 0 ? 'YOU' : 'CPU')
-        : `PLAYER ${i + 1}`;
-      ctx.fillStyle = tank.color;
-      ctx.font = 'bold 12px "Courier New"';
-      ctx.textAlign = isLeft ? 'left' : 'right';
-      ctx.fillText(playerLabel, isLeft ? barX : barX + barWidth, barY - 8);
-
-      // Color indicator dot
-      ctx.fillStyle = tank.color;
-      ctx.beginPath();
-      ctx.arc(isLeft ? barX + barWidth - 8 : barX + 8, barY - 12, 5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Health bar background
-      ctx.fillStyle = '#333';
-      ctx.beginPath();
-      ctx.roundRect(barX, barY, barWidth, barHeight, 3);
-      ctx.fill();
-
-      // Health bar fill with gradient (green > yellow > red)
-      let healthColor: string;
-      if (healthPercent > 0.5) {
-        healthColor = '#4ECB71';
-      } else if (healthPercent > 0.25) {
-        healthColor = '#FFD93D';
-      } else {
-        healthColor = '#FF6B6B';
-      }
-
-      const gradient = ctx.createLinearGradient(barX, barY, barX, barY + barHeight);
-      gradient.addColorStop(0, this.lightenColor(healthColor, 30));
-      gradient.addColorStop(0.5, healthColor);
-      gradient.addColorStop(1, this.darkenColor(healthColor, 30));
-
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.roundRect(barX, barY, barWidth * healthPercent, barHeight, 3);
-      ctx.fill();
-
-      // Health bar border
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(barX, barY, barWidth, barHeight, 3);
-      ctx.stroke();
-
-      // Numeric health value
-      ctx.fillStyle = '#fff';
+      // Team label
+      const teamLabel = this.gameMode === 'single'
+        ? (teamIdx === 0 ? 'YOUR TEAM' : 'CPU TEAM')
+        : `TEAM ${teamIdx + 1}`;
+      ctx.fillStyle = TEAM_COLORS[teamIdx];
       ctx.font = 'bold 11px "Courier New"';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${Math.round(animatedHealth)}`, barX + barWidth / 2, barY + barHeight / 2 + 4);
+      ctx.textAlign = isLeft ? 'left' : 'right';
+      ctx.fillText(teamLabel, isLeft ? panelX + 5 : panelX + teamPanelWidth - 5, panelY + 14);
+
+      // Alive count
+      ctx.fillStyle = '#aaa';
+      ctx.font = '10px "Courier New"';
+      ctx.textAlign = isLeft ? 'right' : 'left';
+      ctx.fillText(`${aliveCount}/${ANTS_PER_TEAM}`, isLeft ? panelX + teamPanelWidth - 5 : panelX + 5, panelY + 14);
+
+      // Mini health bars in 2 rows of 4
+      for (let i = 0; i < teamAnts.length; i++) {
+        const ant = teamAnts[i];
+        const row = Math.floor(i / barsPerRow);
+        const col = i % barsPerRow;
+
+        const barX = panelX + 8 + col * (miniBarWidth + barSpacing);
+        const barY = panelY + 24 + row * (miniBarHeight + rowSpacing);
+
+        // Update animated health value
+        const antIndex = ant.playerIndex;
+        if (this.hudHealthAnimations[antIndex]) {
+          const anim = this.hudHealthAnimations[antIndex];
+          anim.target = ant.health;
+          const diff = anim.target - anim.current;
+          anim.current += diff * 0.1;
+          if (Math.abs(diff) < 0.1) anim.current = anim.target;
+        }
+
+        const animatedHealth = this.hudHealthAnimations[antIndex]?.current ?? ant.health;
+        const healthPercent = animatedHealth / 100;
+        const isCurrent = ant.playerIndex === this.currentPlayerIndex;
+        const isDead = !ant.isAlive;
+
+        // Health bar background
+        ctx.fillStyle = isDead ? '#222' : '#333';
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, miniBarWidth, miniBarHeight, 2);
+        ctx.fill();
+
+        if (!isDead) {
+          // Health bar fill
+          let healthColor: string;
+          if (healthPercent > 0.5) {
+            healthColor = '#4ECB71';
+          } else if (healthPercent > 0.25) {
+            healthColor = '#FFD93D';
+          } else {
+            healthColor = '#FF6B6B';
+          }
+
+          ctx.fillStyle = healthColor;
+          ctx.beginPath();
+          ctx.roundRect(barX, barY, miniBarWidth * healthPercent, miniBarHeight, 2);
+          ctx.fill();
+        }
+
+        // Highlight current ant with gold border
+        if (isCurrent && (this.state === 'PLAYING' || this.state === 'AI_THINKING')) {
+          ctx.strokeStyle = '#FFD700';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.roundRect(barX - 1, barY - 1, miniBarWidth + 2, miniBarHeight + 2, 2);
+          ctx.stroke();
+        } else if (isDead) {
+          // Gray border for dead ants
+          ctx.strokeStyle = '#444';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(barX, barY, miniBarWidth, miniBarHeight, 2);
+          ctx.stroke();
+
+          // X mark for dead ant
+          ctx.strokeStyle = '#666';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(barX + 2, barY + 2);
+          ctx.lineTo(barX + miniBarWidth - 2, barY + miniBarHeight - 2);
+          ctx.moveTo(barX + miniBarWidth - 2, barY + 2);
+          ctx.lineTo(barX + 2, barY + miniBarHeight - 2);
+          ctx.stroke();
+        }
+
+        // Ant number below bar
+        ctx.fillStyle = isDead ? '#444' : (isCurrent ? '#FFD700' : '#888');
+        ctx.font = isCurrent ? 'bold 8px "Courier New"' : '8px "Courier New"';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${i + 1}`, barX + miniBarWidth / 2, barY + miniBarHeight + 8);
+      }
     }
   }
 
@@ -2373,7 +2500,7 @@ export class Game {
     ctx.textBaseline = 'middle';
     ctx.fillText(bannerText, BASE_WIDTH / 2, 55);
 
-    // During overview phase, show player labels in world space
+    // During overview phase, show team labels in world space (only show a few key ants)
     if (this.introPanPhase === 0) {
       ctx.restore();
       ctx.save();
@@ -2381,40 +2508,58 @@ export class Game {
       // Apply camera transform for world-space labels
       this.applyCameraTransform(1.0);
 
-      for (let i = 0; i < this.ants.length; i++) {
-        const ant = this.ants[i];
-        const label = this.gameMode === 'single'
-          ? (i === 0 ? 'YOU' : 'CPU')
-          : `P${i + 1}`;
+      // Show labels for first and last ant of each team
+      for (let teamIdx = 0; teamIdx < NUM_TEAMS; teamIdx++) {
+        const teamAnts = this.ants.filter(a => a.teamIndex === teamIdx);
+        const firstAnt = teamAnts[0];
+        const lastAnt = teamAnts[teamAnts.length - 1];
+        const teamLabel = this.gameMode === 'single'
+          ? (teamIdx === 0 ? 'YOUR TEAM' : 'CPU TEAM')
+          : `TEAM ${teamIdx + 1}`;
 
-        // Label background
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.beginPath();
-        ctx.roundRect(ant.x - 30, ant.y - 70, 60, 24, 6);
-        ctx.fill();
+        // Show label above first ant of each team
+        if (firstAnt) {
+          // Label background
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.beginPath();
+          ctx.roundRect(firstAnt.x - 45, firstAnt.y - 75, 90, 28, 6);
+          ctx.fill();
 
-        // Label border in player color
-        ctx.strokeStyle = ant.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.roundRect(ant.x - 30, ant.y - 70, 60, 24, 6);
-        ctx.stroke();
+          // Label border in team color
+          ctx.strokeStyle = TEAM_COLORS[teamIdx];
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.roundRect(firstAnt.x - 45, firstAnt.y - 75, 90, 28, 6);
+          ctx.stroke();
 
-        // Label text
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 14px "Courier New"';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(label, ant.x, ant.y - 58);
+          // Label text
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 12px "Courier New"';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(teamLabel, firstAnt.x, firstAnt.y - 61);
 
-        // Arrow pointing down to ant
-        ctx.fillStyle = ant.color;
-        ctx.beginPath();
-        ctx.moveTo(ant.x, ant.y - 46);
-        ctx.lineTo(ant.x - 6, ant.y - 52);
-        ctx.lineTo(ant.x + 6, ant.y - 52);
-        ctx.closePath();
-        ctx.fill();
+          // Arrow pointing down to ant
+          ctx.fillStyle = TEAM_COLORS[teamIdx];
+          ctx.beginPath();
+          ctx.moveTo(firstAnt.x, firstAnt.y - 47);
+          ctx.lineTo(firstAnt.x - 6, firstAnt.y - 53);
+          ctx.lineTo(firstAnt.x + 6, firstAnt.y - 53);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Draw line connecting team ants
+        if (teamAnts.length > 1) {
+          ctx.strokeStyle = TEAM_COLORS[teamIdx];
+          ctx.lineWidth = 1;
+          ctx.globalAlpha = 0.3;
+          ctx.beginPath();
+          ctx.moveTo(firstAnt.x, firstAnt.y - 30);
+          ctx.lineTo(lastAnt.x, lastAnt.y - 30);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
       }
     }
 
@@ -2516,31 +2661,6 @@ export class Game {
     ctx.fillText('POWER', meterX, meterY + 18);
 
     ctx.restore();
-  }
-
-  // Helper to lighten a hex color
-  private lightenColor(color: string, amount: number): string {
-    // Handle hex colors
-    if (color.startsWith('#')) {
-      const num = parseInt(color.replace('#', ''), 16);
-      const r = Math.min(255, (num >> 16) + amount);
-      const g = Math.min(255, ((num >> 8) & 0x00FF) + amount);
-      const b = Math.min(255, (num & 0x0000FF) + amount);
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-    return color;
-  }
-
-  // Helper to darken a hex color
-  private darkenColor(color: string, amount: number): string {
-    if (color.startsWith('#')) {
-      const num = parseInt(color.replace('#', ''), 16);
-      const r = Math.max(0, (num >> 16) - amount);
-      const g = Math.max(0, ((num >> 8) & 0x00FF) - amount);
-      const b = Math.max(0, (num & 0x0000FF) - amount);
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-    return color;
   }
 
   private showTurnBanner(text: string): void {

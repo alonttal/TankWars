@@ -29,6 +29,52 @@ export class AntAI {
     shooter.selectWeapon('standard');
   }
 
+  // Select which enemy ant to target
+  selectTarget(shooter: Ant, enemies: Ant[]): Ant | null {
+    if (enemies.length === 0) return null;
+    if (enemies.length === 1) return enemies[0];
+
+    // Based on difficulty, select target
+    switch (this.difficulty) {
+      case 'easy':
+        // Easy: pick random target
+        return enemies[Math.floor(Math.random() * enemies.length)];
+
+      case 'medium':
+        // Medium: 50% chance to pick closest, 50% random
+        if (Math.random() < 0.5) {
+          return this.getClosestEnemy(shooter, enemies);
+        }
+        return enemies[Math.floor(Math.random() * enemies.length)];
+
+      case 'hard':
+        // Hard: Pick the lowest health enemy, or closest if tied
+        const lowestHealth = Math.min(...enemies.map(e => e.health));
+        const lowHealthEnemies = enemies.filter(e => e.health === lowestHealth);
+        if (lowHealthEnemies.length === 1) {
+          return lowHealthEnemies[0];
+        }
+        // If multiple with same low health, pick closest
+        return this.getClosestEnemy(shooter, lowHealthEnemies);
+    }
+  }
+
+  // Get the closest enemy to the shooter
+  private getClosestEnemy(shooter: Ant, enemies: Ant[]): Ant {
+    let closest = enemies[0];
+    let closestDist = Math.abs(enemies[0].x - shooter.x);
+
+    for (const enemy of enemies) {
+      const dist = Math.abs(enemy.x - shooter.x);
+      if (dist < closestDist) {
+        closest = enemy;
+        closestDist = dist;
+      }
+    }
+
+    return closest;
+  }
+
   calculateShot(
     shooter: Ant,
     target: Ant,
