@@ -933,6 +933,9 @@ export class Ant {
       const armY = shoulderY - Math.round(Math.sin(angleRad) * 4) + 1;
       this.drawPixel(ctx, armX, armY, bodyDark);
       this.drawPixel(ctx, armX, armY + 1, bodyDark);
+
+      // === TARGETING CURSOR ===
+      this.renderTargetingCursor(ctx, shoulderX, shoulderY, angleRad, direction, bazookaLen);
     }
 
     // === CURRENT PLAYER INDICATOR (arrow pointing down) ===
@@ -962,6 +965,80 @@ export class Ant {
     for (let i = 0; i < healthPixels; i++) {
       this.drawPixel(ctx, baseX + direction * i, healthBarY, healthColor);
     }
+  }
+
+  // Render targeting cursor with aiming line and crosshair
+  private renderTargetingCursor(
+    ctx: CanvasRenderingContext2D,
+    shoulderX: number,
+    shoulderY: number,
+    angleRad: number,
+    direction: number,
+    bazookaLen: number
+  ): void {
+    // Convert from pixel grid back to world coordinates
+    const muzzleWorldX = (shoulderX + Math.cos(angleRad) * bazookaLen * direction) * ANT_PIXEL_SCALE;
+    const muzzleWorldY = (shoulderY - Math.sin(angleRad) * bazookaLen) * ANT_PIXEL_SCALE;
+
+    // Aiming line parameters
+    const lineLength = 80; // Length of the aiming line
+    const crosshairSize = 8;
+    const dashLength = 6;
+    const gapLength = 4;
+
+    // Calculate end point of aiming line
+    const endX = muzzleWorldX + Math.cos(angleRad) * lineLength * direction;
+    const endY = muzzleWorldY - Math.sin(angleRad) * lineLength;
+
+    // Pulsing effect
+    const pulse = 0.6 + Math.sin(this.idleTime * 4) * 0.2;
+
+    ctx.save();
+
+    // === DASHED AIMING LINE ===
+    ctx.strokeStyle = `rgba(255, 255, 255, ${pulse * 0.7})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([dashLength, gapLength]);
+    ctx.lineDashOffset = -this.idleTime * 20; // Animated dash
+
+    ctx.beginPath();
+    ctx.moveTo(muzzleWorldX, muzzleWorldY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    // Reset line dash
+    ctx.setLineDash([]);
+
+    // === CROSSHAIR at end of line ===
+    ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
+    ctx.lineWidth = 2;
+
+    // Horizontal line
+    ctx.beginPath();
+    ctx.moveTo(endX - crosshairSize, endY);
+    ctx.lineTo(endX + crosshairSize, endY);
+    ctx.stroke();
+
+    // Vertical line
+    ctx.beginPath();
+    ctx.moveTo(endX, endY - crosshairSize);
+    ctx.lineTo(endX, endY + crosshairSize);
+    ctx.stroke();
+
+    // Center dot
+    ctx.fillStyle = `rgba(255, 100, 100, ${pulse})`;
+    ctx.beginPath();
+    ctx.arc(endX, endY, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Outer circle
+    ctx.strokeStyle = `rgba(255, 255, 255, ${pulse * 0.5})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(endX, endY, crosshairSize + 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   private renderDestroyed(ctx: CanvasRenderingContext2D): void {
