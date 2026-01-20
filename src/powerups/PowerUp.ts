@@ -1,4 +1,4 @@
-import { BASE_HEIGHT } from '../constants.ts';
+import { MAP_HEIGHT } from '../constants.ts';
 import { PowerUpType, PowerUpConfig, POWERUP_CONFIGS } from './PowerUpTypes.ts';
 import { Terrain } from '../Terrain.ts';
 import { Tank } from '../Tank.ts';
@@ -34,7 +34,7 @@ export class PowerUp {
 
   constructor(x: number, terrain: Terrain, type: PowerUpType) {
     this.x = x;
-    this.y = BASE_HEIGHT - terrain.getHeightAt(x) - 30; // Float above terrain
+    this.y = MAP_HEIGHT - terrain.getHeightAt(x) - 30; // Float above terrain
     this.type = type;
     this.config = POWERUP_CONFIGS[type];
     this.active = true;

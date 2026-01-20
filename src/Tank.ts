@@ -2,7 +2,7 @@ import {
   TANK_WIDTH,
   TANK_HEIGHT,
   BARREL_LENGTH,
-  BASE_HEIGHT
+  MAP_HEIGHT
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
 import { WeaponType, getDefaultAmmo, WEAPON_CONFIGS } from './weapons/WeaponTypes.ts';
@@ -184,7 +184,7 @@ export class Tank {
 
   updatePosition(terrain: Terrain): void {
     // Update Y position to sit on terrain
-    this.y = BASE_HEIGHT - terrain.getHeightAt(this.x);
+    this.y = MAP_HEIGHT - terrain.getHeightAt(this.x);
   }
 
   takeDamage(amount: number): void {

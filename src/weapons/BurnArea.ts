@@ -1,4 +1,4 @@
-import { BASE_HEIGHT } from '../constants.ts';
+import { MAP_HEIGHT } from '../constants.ts';
 import { Tank } from '../Tank.ts';
 import { Terrain } from '../Terrain.ts';
 
@@ -101,7 +101,7 @@ export class BurnArea {
     }
 
     // Update Y position to follow terrain
-    this.y = BASE_HEIGHT - terrain.getHeightAt(this.x);
+    this.y = MAP_HEIGHT - terrain.getHeightAt(this.x);
 
     // Spawn particles
     this.particleSpawnTimer -= deltaTime;

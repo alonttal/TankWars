@@ -1,4 +1,4 @@
-import { BASE_WIDTH, BASE_HEIGHT, TERRAIN_COLOR, SKY_COLOR } from './constants.ts';
+import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT, TERRAIN_COLOR, SKY_COLOR } from './constants.ts';
 
 interface Cloud {
   x: number;
@@ -64,7 +64,7 @@ export class Terrain {
   private scorchMarks: ScorchMark[];
 
   constructor() {
-    this.heightMap = new Array(BASE_WIDTH).fill(0);
+    this.heightMap = new Array(MAP_WIDTH).fill(0);
     this.clouds = [];
     this.windParticles = [];
     this.ambientDust = [];
@@ -119,15 +119,16 @@ export class Terrain {
     this.scorchMarks = []; // Clear scorch marks for new terrain
 
     // Generate terrain using midpoint displacement algorithm
-    const minHeight = BASE_HEIGHT * 0.3;
-    const maxHeight = BASE_HEIGHT * 0.7;
+    // Use fixed height values so terrain stays at bottom regardless of MAP_HEIGHT
+    const minHeight = TERRAIN_MIN_HEIGHT;
+    const maxHeight = TERRAIN_MAX_HEIGHT;
 
     // Start with random endpoints
     this.heightMap[0] = minHeight + Math.random() * (maxHeight - minHeight);
-    this.heightMap[BASE_WIDTH - 1] = minHeight + Math.random() * (maxHeight - minHeight);
+    this.heightMap[MAP_WIDTH - 1] = minHeight + Math.random() * (maxHeight - minHeight);
 
     // Midpoint displacement
-    this.midpointDisplacement(0, BASE_WIDTH - 1, 150);
+    this.midpointDisplacement(0, MAP_WIDTH - 1, 150);
 
     // Smooth the terrain
     this.smooth(3);
@@ -140,9 +141,9 @@ export class Terrain {
     const avgHeight = (this.heightMap[left] + this.heightMap[right]) / 2;
     this.heightMap[mid] = avgHeight + (Math.random() - 0.5) * displacement;
 
-    // Clamp to valid range
-    const minHeight = BASE_HEIGHT * 0.2;
-    const maxHeight = BASE_HEIGHT * 0.8;
+    // Clamp to valid range (use fixed terrain height bounds)
+    const minHeight = TERRAIN_MIN_HEIGHT * 0.8; // Allow slightly lower
+    const maxHeight = TERRAIN_MAX_HEIGHT * 1.2; // Allow slightly higher
     this.heightMap[mid] = Math.max(minHeight, Math.min(maxHeight, this.heightMap[mid]));
 
     // Recurse
@@ -154,7 +155,7 @@ export class Terrain {
   private smooth(iterations: number): void {
     for (let i = 0; i < iterations; i++) {
       const newHeightMap = [...this.heightMap];
-      for (let x = 1; x < BASE_WIDTH - 1; x++) {
+      for (let x = 1; x < MAP_WIDTH - 1; x++) {
         newHeightMap[x] = (this.heightMap[x - 1] + this.heightMap[x] + this.heightMap[x + 1]) / 3;
       }
       this.heightMap = newHeightMap;
@@ -162,7 +163,7 @@ export class Terrain {
   }
 
   getHeightAt(x: number): number {
-    const index = Math.floor(Math.max(0, Math.min(BASE_WIDTH - 1, x)));
+    const index = Math.floor(Math.max(0, Math.min(MAP_WIDTH - 1, x)));
     return this.heightMap[index];
   }
 
@@ -241,7 +242,7 @@ export class Terrain {
     const isDigger = depthMultiplier > 2.0;
     const effectiveRadius = isDigger ? radius * 0.5 : radius;
 
-    for (let x = Math.max(0, centerX - effectiveRadius); x < Math.min(BASE_WIDTH, centerX + effectiveRadius); x++) {
+    for (let x = Math.max(0, centerX - effectiveRadius); x < Math.min(MAP_WIDTH, centerX + effectiveRadius); x++) {
       const dx = x - centerX;
       const distanceRatio = Math.abs(dx) / effectiveRadius;
 
@@ -260,11 +261,11 @@ export class Terrain {
       }
 
       // Only affect terrain if explosion is at or below terrain level
-      const terrainY = BASE_HEIGHT - this.heightMap[Math.floor(x)];
+      const terrainY = MAP_HEIGHT - this.heightMap[Math.floor(x)];
       if (centerY >= terrainY - radius) {
         // Calculate how much to lower the terrain
         const newTerrainHeight = this.heightMap[Math.floor(x)] - craterDepth;
-        this.heightMap[Math.floor(x)] = Math.max(BASE_HEIGHT * 0.05, newTerrainHeight);
+        this.heightMap[Math.floor(x)] = Math.max(TERRAIN_MIN_HEIGHT * 0.3, newTerrainHeight);
       }
     }
     this.grassNeedsRedraw = true;
@@ -295,19 +296,19 @@ export class Terrain {
   }
 
   private preRenderGrass(): void {
-    this.grassCanvas = new OffscreenCanvas(BASE_WIDTH, BASE_HEIGHT);
+    this.grassCanvas = new OffscreenCanvas(MAP_WIDTH, MAP_HEIGHT);
     const ctx = this.grassCanvas.getContext('2d');
     if (!ctx) return;
 
     // Clear canvas
-    ctx.clearRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+    ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
     const grassColor = '#4A7023';
     const grassHighlight = '#6B8E23';
 
     // Draw individual grass blades
-    for (let x = 0; x < BASE_WIDTH; x += 3) {
-      const baseY = BASE_HEIGHT - this.heightMap[x];
+    for (let x = 0; x < MAP_WIDTH; x += 3) {
+      const baseY = MAP_HEIGHT - this.heightMap[x];
 
       // Draw 2-3 grass blades per position
       const bladeCount = 2 + Math.floor(Math.random() * 2);
@@ -334,14 +335,15 @@ export class Terrain {
     this.grassNeedsRedraw = false;
   }
 
-  render(ctx: CanvasRenderingContext2D): void {
-    // Draw sky gradient
-    const skyGradient = ctx.createLinearGradient(0, 0, 0, BASE_HEIGHT * 0.6);
+  // Render background layer (sky, sun, clouds) - affected by camera with parallax
+  renderBackground(ctx: CanvasRenderingContext2D): void {
+    // Draw sky gradient (covers entire map)
+    const skyGradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT * 0.6);
     skyGradient.addColorStop(0, '#4A90D9'); // Darker blue at top
     skyGradient.addColorStop(0.5, SKY_COLOR); // Light blue
     skyGradient.addColorStop(1, '#B0E0FF'); // Lighter at horizon
     ctx.fillStyle = skyGradient;
-    ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+    ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
     // Draw sun with lens flare
     this.renderSun(ctx);
@@ -414,58 +416,62 @@ export class Terrain {
     }
     ctx.globalAlpha = 1;
     ctx.lineCap = 'butt';
+  }
+
+  // Render terrain/foreground layer (ground, grass, rocks) - fully affected by camera
+  render(ctx: CanvasRenderingContext2D): void {
 
     // Draw terrain with multiple layers
 
     // Layer 1: Deep rock/stone (darkest, at bottom)
     ctx.fillStyle = '#4A3728';
     ctx.beginPath();
-    ctx.moveTo(0, BASE_HEIGHT);
-    for (let x = 0; x < BASE_WIDTH; x++) {
-      const y = BASE_HEIGHT - this.heightMap[x];
+    ctx.moveTo(0, MAP_HEIGHT);
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      const y = MAP_HEIGHT - this.heightMap[x];
       ctx.lineTo(x, y);
     }
-    ctx.lineTo(BASE_WIDTH, BASE_HEIGHT);
+    ctx.lineTo(MAP_WIDTH, MAP_HEIGHT);
     ctx.closePath();
     ctx.fill();
 
     // Layer 2: Dark soil
     ctx.fillStyle = '#5C4033';
     ctx.beginPath();
-    ctx.moveTo(0, BASE_HEIGHT);
-    for (let x = 0; x < BASE_WIDTH; x++) {
-      const y = BASE_HEIGHT - this.heightMap[x] + 8;
-      ctx.lineTo(x, Math.min(BASE_HEIGHT, y));
+    ctx.moveTo(0, MAP_HEIGHT);
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      const y = MAP_HEIGHT - this.heightMap[x] + 8;
+      ctx.lineTo(x, Math.min(MAP_HEIGHT, y));
     }
-    ctx.lineTo(BASE_WIDTH, BASE_HEIGHT);
+    ctx.lineTo(MAP_WIDTH, MAP_HEIGHT);
     ctx.closePath();
     ctx.fill();
 
     // Layer 3: Main soil layer with gradient
-    const soilGradient = ctx.createLinearGradient(0, BASE_HEIGHT * 0.3, 0, BASE_HEIGHT);
+    const soilGradient = ctx.createLinearGradient(0, MAP_HEIGHT * 0.3, 0, MAP_HEIGHT);
     soilGradient.addColorStop(0, '#8B5A2B');
     soilGradient.addColorStop(0.4, TERRAIN_COLOR);
     soilGradient.addColorStop(1, '#6B4423');
     ctx.fillStyle = soilGradient;
     ctx.beginPath();
-    ctx.moveTo(0, BASE_HEIGHT);
-    for (let x = 0; x < BASE_WIDTH; x++) {
-      const y = BASE_HEIGHT - this.heightMap[x] + 20;
-      ctx.lineTo(x, Math.min(BASE_HEIGHT, y));
+    ctx.moveTo(0, MAP_HEIGHT);
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      const y = MAP_HEIGHT - this.heightMap[x] + 20;
+      ctx.lineTo(x, Math.min(MAP_HEIGHT, y));
     }
-    ctx.lineTo(BASE_WIDTH, BASE_HEIGHT);
+    ctx.lineTo(MAP_WIDTH, MAP_HEIGHT);
     ctx.closePath();
     ctx.fill();
 
     // Layer 4: Top soil (lighter brown)
     ctx.fillStyle = '#9B7653';
     ctx.beginPath();
-    ctx.moveTo(0, BASE_HEIGHT);
-    for (let x = 0; x < BASE_WIDTH; x++) {
-      const y = BASE_HEIGHT - this.heightMap[x] + 3;
+    ctx.moveTo(0, MAP_HEIGHT);
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      const y = MAP_HEIGHT - this.heightMap[x] + 3;
       ctx.lineTo(x, y);
     }
-    ctx.lineTo(BASE_WIDTH, BASE_HEIGHT);
+    ctx.lineTo(MAP_WIDTH, MAP_HEIGHT);
     ctx.closePath();
     ctx.fill();
 
@@ -473,12 +479,12 @@ export class Terrain {
     const grassColor = '#4A7023';
     ctx.fillStyle = grassColor;
     ctx.beginPath();
-    ctx.moveTo(0, BASE_HEIGHT);
-    for (let x = 0; x < BASE_WIDTH; x++) {
-      const y = BASE_HEIGHT - this.heightMap[x];
+    ctx.moveTo(0, MAP_HEIGHT);
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      const y = MAP_HEIGHT - this.heightMap[x];
       ctx.lineTo(x, y);
     }
-    ctx.lineTo(BASE_WIDTH, BASE_HEIGHT);
+    ctx.lineTo(MAP_WIDTH, MAP_HEIGHT);
     ctx.closePath();
     ctx.fill();
 
@@ -500,9 +506,9 @@ export class Terrain {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, BASE_HEIGHT - this.heightMap[0] - 1);
-    for (let x = 1; x < BASE_WIDTH; x++) {
-      ctx.lineTo(x, BASE_HEIGHT - this.heightMap[x] - 1);
+    ctx.moveTo(0, MAP_HEIGHT - this.heightMap[0] - 1);
+    for (let x = 1; x < MAP_WIDTH; x++) {
+      ctx.lineTo(x, MAP_HEIGHT - this.heightMap[x] - 1);
     }
     ctx.stroke();
   }
@@ -512,14 +518,14 @@ export class Terrain {
   }
 
   private drawRocks(ctx: CanvasRenderingContext2D): void {
-    // Use a seeded pattern for consistent rock placement
-    const rockPositions = [50, 150, 280, 400, 520, 650, 750];
+    // Use a seeded pattern for consistent rock placement (expanded for larger map)
+    const rockPositions = [50, 150, 280, 400, 520, 650, 750, 900, 1050, 1150];
 
     for (const baseX of rockPositions) {
       const x = baseX + (Math.sin(baseX) * 20);
-      if (x < 0 || x >= BASE_WIDTH) continue;
+      if (x < 0 || x >= MAP_WIDTH) continue;
 
-      const terrainY = BASE_HEIGHT - this.heightMap[Math.floor(x)];
+      const terrainY = MAP_HEIGHT - this.heightMap[Math.floor(x)];
       const rockSize = 5 + Math.abs(Math.sin(baseX * 0.1)) * 8;
 
       // Rock shadow
@@ -624,9 +630,9 @@ export class Terrain {
   // Get a safe spawn position for a tank
   getSpawnPosition(index: number, totalTanks: number): { x: number; y: number } {
     // Distribute tanks evenly across the terrain
-    const spacing = BASE_WIDTH / (totalTanks + 1);
+    const spacing = MAP_WIDTH / (totalTanks + 1);
     const x = spacing * (index + 1);
-    const y = BASE_HEIGHT - this.getHeightAt(x);
+    const y = MAP_HEIGHT - this.getHeightAt(x);
     return { x, y };
   }
 }

@@ -1,4 +1,4 @@
-import { BASE_WIDTH, BASE_HEIGHT, MAX_POWER, WIND_STRENGTH_MAX, PLAYER_COLORS, updateCanvasSize, SCALE_X, SCALE_Y, CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.ts';
+import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, BACKGROUND_PARALLAX, MAX_POWER, WIND_STRENGTH_MAX, PLAYER_COLORS, updateCanvasSize, SCALE_X, SCALE_Y, CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.ts';
 import { Terrain } from './Terrain.ts';
 import { Tank } from './Tank.ts';
 import { Projectile } from './Projectile.ts';
@@ -747,16 +747,28 @@ export class Game {
         p.impactParticles.length > 0
       );
 
-      // Camera follows active projectile with slight lag
+      // Camera follows active projectile
       if (cameraFollowProjectile) {
-        this.targetCameraOffsetX = (BASE_WIDTH / 2 - cameraFollowProjectile.x) * 0.15;
-        this.targetCameraOffsetY = (BASE_HEIGHT / 2 - cameraFollowProjectile.y) * 0.15;
+        // Center projectile in view (clamped to map bounds)
+        const clamped = this.clampCameraOffset(
+          BASE_WIDTH / 2 - cameraFollowProjectile.x,
+          BASE_HEIGHT / 2 - cameraFollowProjectile.y
+        );
+        this.targetCameraOffsetX = clamped.x;
+        this.targetCameraOffsetY = clamped.y;
         this.targetCameraZoom = 1.05;
       } else if (!anyActiveProjectile) {
-        // Reset camera when no active projectiles
+        // Return camera to current player's tank
+        const currentTank = this.tanks[this.currentPlayerIndex];
+        if (currentTank && currentTank.isAlive) {
+          const clamped = this.clampCameraOffset(
+            BASE_WIDTH / 2 - currentTank.x,
+            BASE_HEIGHT / 2 - currentTank.y
+          );
+          this.targetCameraOffsetX = clamped.x;
+          this.targetCameraOffsetY = clamped.y;
+        }
         this.targetCameraZoom = 1;
-        this.targetCameraOffsetX = 0;
-        this.targetCameraOffsetY = 0;
       }
 
       // Update burn areas
@@ -892,6 +904,67 @@ export class Game {
     this.playerStats[shooterIndex].damageDealt += totalDamage;
   }
 
+  // Helper to apply camera transform with a parallax factor (0 = no movement, 1 = full movement)
+  private applyCameraTransform(parallaxFactor: number): void {
+    const offsetX = this.cameraOffsetX * parallaxFactor;
+    const offsetY = this.cameraOffsetY * parallaxFactor;
+    const zoom = 1 + (this.cameraZoom - 1) * parallaxFactor;
+
+    this.ctx.translate(BASE_WIDTH / 2, BASE_HEIGHT / 2);
+    this.ctx.scale(zoom, zoom);
+    this.ctx.translate(-BASE_WIDTH / 2 + offsetX, -BASE_HEIGHT / 2 + offsetY);
+
+    // Apply screen shake (reduced for background)
+    if (this.shakeIntensity > 0) {
+      this.ctx.translate(this.shakeOffsetX * parallaxFactor, this.shakeOffsetY * parallaxFactor);
+    }
+  }
+
+  // Clamp camera offset to keep view within map bounds
+  private clampCameraOffset(offsetX: number, offsetY: number): { x: number; y: number } {
+    // With offset (ox, oy), view shows world region:
+    // x: [-ox, BASE_WIDTH - ox]
+    // y: [-oy, BASE_HEIGHT - oy]
+    //
+    // To keep within map bounds [0, MAP_WIDTH] x [0, MAP_HEIGHT]:
+    // -ox >= 0  =>  ox <= 0
+    // BASE_WIDTH - ox <= MAP_WIDTH  =>  ox >= BASE_WIDTH - MAP_WIDTH
+    // -oy >= 0  =>  oy <= 0
+    // BASE_HEIGHT - oy <= MAP_HEIGHT  =>  oy >= BASE_HEIGHT - MAP_HEIGHT
+
+    const minOffsetX = BASE_WIDTH - MAP_WIDTH;   // -400
+    const maxOffsetX = 0;
+    const minOffsetY = BASE_HEIGHT - MAP_HEIGHT; // -700
+    const maxOffsetY = 0;
+
+    return {
+      x: Math.max(minOffsetX, Math.min(maxOffsetX, offsetX)),
+      y: Math.max(minOffsetY, Math.min(maxOffsetY, offsetY))
+    };
+  }
+
+  // Focus camera on a specific tank (used at start of turns)
+  // If immediate is true, snap camera instantly (used at game start)
+  private focusCameraOnTank(tank: Tank, immediate: boolean = false): void {
+    // Calculate offset to center the tank in view
+    // offset = screenCenter - worldPosition
+    let offsetX = BASE_WIDTH / 2 - tank.x;
+    let offsetY = BASE_HEIGHT / 2 - tank.y;
+
+    // Clamp to map bounds
+    const clamped = this.clampCameraOffset(offsetX, offsetY);
+    this.targetCameraOffsetX = clamped.x;
+    this.targetCameraOffsetY = clamped.y;
+    this.targetCameraZoom = 1;
+
+    // Snap immediately if requested (e.g., at game start)
+    if (immediate) {
+      this.cameraOffsetX = this.targetCameraOffsetX;
+      this.cameraOffsetY = this.targetCameraOffsetY;
+      this.cameraZoom = this.targetCameraZoom;
+    }
+  }
+
   private render(): void {
     // Clear canvas (use actual canvas size)
     this.ctx.fillStyle = '#000';
@@ -901,25 +974,24 @@ export class Game {
     this.ctx.save();
     this.ctx.scale(SCALE_X, SCALE_Y);
 
-    // Apply camera zoom and offset (centered)
-    if (this.cameraZoom !== 1 || this.cameraOffsetX !== 0 || this.cameraOffsetY !== 0) {
-      this.ctx.translate(BASE_WIDTH / 2, BASE_HEIGHT / 2);
-      this.ctx.scale(this.cameraZoom, this.cameraZoom);
-      this.ctx.translate(-BASE_WIDTH / 2 + this.cameraOffsetX, -BASE_HEIGHT / 2 + this.cameraOffsetY);
-    }
-
-    // Apply screen shake offset
-    if (this.shakeIntensity > 0) {
-      this.ctx.translate(this.shakeOffsetX, this.shakeOffsetY);
-    }
-
+    // Render menu without camera transforms
     if (this.state === 'MENU') {
       this.renderMenu();
       this.ctx.restore();
       return;
     }
 
-    // Render terrain
+    // ===== LAYER 1: BACKGROUND (with parallax - moves slower) =====
+    this.ctx.save();
+    this.applyCameraTransform(BACKGROUND_PARALLAX);
+    this.terrain.renderBackground(this.ctx);
+    this.ctx.restore();
+
+    // ===== LAYER 2: GAMEPLAY (full camera movement) =====
+    this.ctx.save();
+    this.applyCameraTransform(1.0);
+
+    // Render terrain (ground)
     this.terrain.render(this.ctx);
 
 
@@ -988,6 +1060,20 @@ export class Game {
       this.ctx.restore();
     }
 
+    // Render screen flash overlay (in world space)
+    if (this.screenFlashIntensity > 0) {
+      this.ctx.fillStyle = this.screenFlashColor;
+      this.ctx.globalAlpha = this.screenFlashIntensity;
+      this.ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+      this.ctx.globalAlpha = 1;
+    }
+
+    // Close gameplay layer
+    this.ctx.restore();
+
+    // ===== LAYER 3: UI (no camera movement) =====
+
+    // Render HUD elements (in screen space, no camera transform)
     // Render wind indicator arrow (top right)
     if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING') {
       this.renderWindArrow();
@@ -1013,7 +1099,7 @@ export class Game {
       this.renderAIThinking();
     }
 
-    // Render game over
+    // Render game over (UI overlay)
     if (this.state === 'GAME_OVER') {
       this.renderGameOver();
       this.renderConfetti();
@@ -1022,22 +1108,14 @@ export class Game {
       this.updateFireworks(0.016); // Continue animating fireworks
     }
 
-    // Render pause menu
+    // Render pause menu (UI overlay)
     if (this.state === 'PAUSED') {
       this.renderPauseMenu();
     }
 
-    // Render settings menu
+    // Render settings menu (UI overlay)
     if (this.state === 'SETTINGS') {
       this.renderSettings();
-    }
-
-    // Render screen flash overlay
-    if (this.screenFlashIntensity > 0) {
-      this.ctx.fillStyle = this.screenFlashColor;
-      this.ctx.globalAlpha = this.screenFlashIntensity;
-      this.ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
-      this.ctx.globalAlpha = 1;
     }
 
     this.ctx.restore();
@@ -1482,6 +1560,9 @@ export class Game {
     const turnText = this.gameMode === 'single' ? 'YOUR TURN' : 'PLAYER 1 TURN';
     this.showTurnBanner(turnText);
 
+    // Focus camera on first player (snap immediately at game start)
+    this.focusCameraOnTank(firstTank, true);
+
     // Start background music
     soundManager.startMusic();
     this.musicButton.textContent = soundManager.isMusicPlaying() ? '🎵 ON' : '🎵 OFF';
@@ -1709,6 +1790,9 @@ export class Game {
       turnText = `PLAYER ${this.currentPlayerIndex + 1} TURN`;
     }
     this.showTurnBanner(turnText);
+
+    // Focus camera on active player
+    this.focusCameraOnTank(tank);
 
     this.updateUI();
   }
@@ -2030,8 +2114,8 @@ export class Game {
 
       // Stop if we hit terrain or go out of bounds
       const terrainHeight = this.terrain.getHeightAt(x);
-      const terrainY = BASE_HEIGHT - terrainHeight;
-      if (y >= terrainY || x < -50 || x > BASE_WIDTH + 50 || y > BASE_HEIGHT + 50) {
+      const terrainY = MAP_HEIGHT - terrainHeight;
+      if (y >= terrainY || x < -50 || x > MAP_WIDTH + 50 || y > MAP_HEIGHT + 50) {
         this.trajectoryPoints.push({ x, y: Math.min(y, terrainY) });
         break;
       }

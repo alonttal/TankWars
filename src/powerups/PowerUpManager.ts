@@ -1,4 +1,4 @@
-import { BASE_WIDTH } from '../constants.ts';
+import { MAP_WIDTH } from '../constants.ts';
 import { PowerUp } from './PowerUp.ts';
 import { PowerUpType, POWERUP_ORDER, POWERUP_CONFIGS } from './PowerUpTypes.ts';
 import { Terrain } from '../Terrain.ts';
@@ -33,7 +33,7 @@ export class PowerUpManager {
     const maxAttempts = 20;
 
     while (attempts < maxAttempts) {
-      const x = 50 + Math.random() * (BASE_WIDTH - 100);
+      const x = 50 + Math.random() * (MAP_WIDTH - 100);
 
       // Check distance from all tanks
       let tooClose = false;

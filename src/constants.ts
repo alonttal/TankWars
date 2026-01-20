@@ -1,6 +1,22 @@
-// Base game dimensions (logic coordinates)
+// Base game dimensions (view/window logic coordinates)
 export const BASE_WIDTH = 800;
 export const BASE_HEIGHT = 500;
+
+// Map dimensions (larger than view to allow camera movement)
+export const MAP_WIDTH = 1200;
+export const MAP_HEIGHT = 1200; // Extra height for projectiles going up
+
+// Terrain generation bounds (fixed values, not proportional to MAP_HEIGHT)
+// These define where the terrain surface should be generated
+export const TERRAIN_MIN_HEIGHT = 150; // Minimum terrain height from bottom
+export const TERRAIN_MAX_HEIGHT = 400; // Maximum terrain height from bottom
+
+// Camera home position offset (centers view on terrain area)
+// This offsets the view downward to show the terrain instead of empty sky
+export const CAMERA_HOME_OFFSET_Y = -(MAP_HEIGHT - BASE_HEIGHT - TERRAIN_MAX_HEIGHT);
+
+// Parallax factor for background layer (0 = no movement, 1 = full movement like gameplay)
+export const BACKGROUND_PARALLAX = 0.3;
 
 // These will be updated dynamically
 export let CANVAS_WIDTH = 800;

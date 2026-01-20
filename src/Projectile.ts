@@ -1,8 +1,8 @@
 import {
   GRAVITY,
   PROJECTILE_RADIUS,
-  BASE_WIDTH,
-  BASE_HEIGHT,
+  MAP_WIDTH,
+  MAP_HEIGHT,
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
 import { Tank } from './Tank.ts';
@@ -234,13 +234,13 @@ export class Projectile {
     }
 
     // Check if out of bounds
-    if (this.x < -50 || this.x > BASE_WIDTH + 50 || this.y > BASE_HEIGHT + 50) {
+    if (this.x < -50 || this.x > MAP_WIDTH + 50 || this.y > MAP_HEIGHT + 50) {
       this.active = false;
       return { active: false, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
     }
 
     // Check terrain collision
-    const terrainY = BASE_HEIGHT - terrain.getHeightAt(this.x);
+    const terrainY = MAP_HEIGHT - terrain.getHeightAt(this.x);
     if (this.y >= terrainY) {
       // Bouncer weapon - bounce off terrain
       if (this.weaponConfig.type === 'bouncer' && this.bouncesRemaining > 0) {
