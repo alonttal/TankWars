@@ -3,14 +3,17 @@ export const BASE_WIDTH = 800;
 export const BASE_HEIGHT = 500;
 
 // Map dimensions (larger than view to allow camera movement)
-// Similar to Worms Armageddon - large horizontal maps with varied terrain
-export const MAP_WIDTH = 4000;
-export const MAP_HEIGHT = 1800; // Extra height for projectiles going up
+export const MAP_WIDTH = 1600;
+export const MAP_HEIGHT = 900;
+
+// Terrain bitmap scale - each bitmap cell represents NxN screen pixels
+// Higher = faster/less memory, Lower = more detail
+export const TERRAIN_SCALE = 4; // 4x4 pixels per cell = 16x less memory
 
 // Terrain generation bounds (fixed values, not proportional to MAP_HEIGHT)
 // These define where the terrain surface should be generated
-export const TERRAIN_MIN_HEIGHT = 200; // Minimum terrain height from bottom
-export const TERRAIN_MAX_HEIGHT = 800; // Maximum terrain height from bottom (allows tall hills)
+export const TERRAIN_MIN_HEIGHT = 50;  // Minimum terrain height (deep valleys)
+export const TERRAIN_MAX_HEIGHT = 700; // Maximum terrain height (tall mountains)
 
 // Camera home position offset (centers view on terrain area)
 // This offsets the view downward to show the terrain instead of empty sky

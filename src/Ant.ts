@@ -187,8 +187,21 @@ export class Ant {
   }
 
   updatePosition(terrain: Terrain): void {
-    // Update Y position to sit on terrain
-    this.y = MAP_HEIGHT - terrain.getHeightAt(this.x);
+    // Update Y position to sit on terrain surface
+    // With bitmap terrain, getHeightAt returns height from bottom
+    const surfaceHeight = terrain.getHeightAt(this.x);
+    this.y = MAP_HEIGHT - surfaceHeight;
+
+    // Handle edge case: if ant ends up inside terrain (thin platforms, caves)
+    // scan upward to find the surface
+    let checkY = Math.floor(this.y);
+    while (terrain.isPointInTerrain(this.x, checkY) && checkY > 0) {
+      checkY--;
+    }
+    // Position ant just above the terrain
+    if (checkY < this.y) {
+      this.y = checkY;
+    }
   }
 
   takeDamage(amount: number): void {
