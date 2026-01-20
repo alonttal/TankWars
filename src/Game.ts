@@ -63,7 +63,6 @@ export class Game {
 
   // Power charging
   private isChargingPower: boolean;
-  private powerDirection: number;
 
   // Intro camera pan
   private introPanPhase: number;
@@ -122,7 +121,6 @@ export class Game {
     this.aiThinkingTimer = 0;
     this.aiShot = null;
     this.isChargingPower = false;
-    this.powerDirection = 1;
     this.introPanPhase = 0;
     this.introPanTimer = 0;
     this.mouseX = 0;
@@ -282,7 +280,6 @@ export class Game {
         e.preventDefault();
         if (!this.isChargingPower) {
           this.isChargingPower = true;
-          this.powerDirection = 1;
           this.powerSlider.value = '0';
           this.powerSlider.dispatchEvent(new Event('input'));
           soundManager.startCharging();
@@ -327,7 +324,6 @@ export class Game {
     if (this.state === 'PLAYING' && !this.isAITurn()) {
       if (!this.isChargingPower) {
         this.isChargingPower = true;
-        this.powerDirection = 1;
         this.powerSlider.value = '0';
         this.powerSlider.dispatchEvent(new Event('input'));
         soundManager.startCharging();
@@ -609,15 +605,18 @@ export class Game {
   private updatePowerCharging(deltaTime: number): void {
     const currentPower = parseInt(this.powerSlider.value);
     const powerSpeed = 100;
-    const powerChange = powerSpeed * deltaTime * this.powerDirection;
+    const powerChange = powerSpeed * deltaTime;
     let newPower = currentPower + powerChange;
 
+    // Auto-fire at 100% power
     if (newPower >= 100) {
       newPower = 100;
-      this.powerDirection = -1;
-    } else if (newPower <= 0) {
-      newPower = 0;
-      this.powerDirection = 1;
+      this.powerSlider.value = '100';
+      this.powerSlider.dispatchEvent(new Event('input'));
+      this.isChargingPower = false;
+      soundManager.stopCharging();
+      this.fire();
+      return;
     }
 
     this.powerSlider.value = Math.round(newPower).toString();
@@ -842,7 +841,10 @@ export class Game {
     for (let i = 0; i < this.ants.length; i++) {
       const isCurrentAndPlaying = i === this.currentPlayerIndex &&
         (this.state === 'PLAYING' || this.state === 'AI_THINKING');
-      this.ants[i].render(this.ctx, isCurrentAndPlaying, this.isChargingPower);
+      const chargingPower = (isCurrentAndPlaying && this.isChargingPower)
+        ? parseInt(this.powerSlider.value)
+        : 0;
+      this.ants[i].render(this.ctx, isCurrentAndPlaying, chargingPower);
     }
 
     this.powerUpManager.render(this.ctx);
@@ -910,7 +912,6 @@ export class Game {
     this.winningTeam = null;
     this.winner = null;
     this.isChargingPower = false;
-    this.powerDirection = 1;
     this.turnTimeRemaining = this.maxTurnTime;
 
     // Clear effects

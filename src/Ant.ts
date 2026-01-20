@@ -676,7 +676,7 @@ export class Ant {
     this.activeBuffs = [];
   }
 
-  render(ctx: CanvasRenderingContext2D, isCurrentPlayer: boolean, _isCharging: boolean = false): void {
+  render(ctx: CanvasRenderingContext2D, isCurrentPlayer: boolean, chargingPower: number = 0): void {
     if (!this.isAlive) {
       this.renderDestroyed(ctx);
       return;
@@ -708,7 +708,7 @@ export class Ant {
 
     // === PIXEL ART ANT RENDERING ===
     // Render directly to main canvas using pixel blocks
-    this.renderAntBody(ctx, isCurrentPlayer);
+    this.renderAntBody(ctx, isCurrentPlayer, chargingPower);
 
     // Draw spark particles
     for (const particle of this.sparkParticles) {
@@ -744,7 +744,7 @@ export class Ant {
   }
 
   // Render the ant body as pixel art (2x2 pixels for more detail)
-  private renderAntBody(ctx: CanvasRenderingContext2D, isCurrentPlayer: boolean): void {
+  private renderAntBody(ctx: CanvasRenderingContext2D, isCurrentPlayer: boolean, chargingPower: number = 0): void {
     const healthPercent = this.health / 100;
     const direction = this.facingRight ? 1 : -1;
 
@@ -935,7 +935,7 @@ export class Ant {
       this.drawPixel(ctx, armX, armY + 1, bodyDark);
 
       // === TARGETING CURSOR ===
-      this.renderTargetingCursor(ctx, shoulderX, shoulderY, angleRad, direction, bazookaLen);
+      this.renderTargetingCursor(ctx, shoulderX, shoulderY, angleRad, direction, bazookaLen, chargingPower);
     }
 
     // === CURRENT PLAYER INDICATOR (arrow pointing down) ===
@@ -967,14 +967,15 @@ export class Ant {
     }
   }
 
-  // Render targeting cursor with aiming line and crosshair
+  // Render targeting cursor with aiming line, crosshair, and power indicator
   private renderTargetingCursor(
     ctx: CanvasRenderingContext2D,
     shoulderX: number,
     shoulderY: number,
     angleRad: number,
     direction: number,
-    bazookaLen: number
+    bazookaLen: number,
+    chargingPower: number = 0
   ): void {
     // Convert from pixel grid back to world coordinates
     const muzzleWorldX = (shoulderX + Math.cos(angleRad) * bazookaLen * direction) * ANT_PIXEL_SCALE;
@@ -995,9 +996,53 @@ export class Ant {
 
     ctx.save();
 
+    // === POWER INDICATOR (grows along the line when charging) ===
+    if (chargingPower > 0) {
+      const powerRatio = chargingPower / 100;
+      const powerLength = lineLength * powerRatio;
+      const powerEndX = muzzleWorldX + Math.cos(angleRad) * powerLength * direction;
+      const powerEndY = muzzleWorldY - Math.sin(angleRad) * powerLength;
+
+      // Power color: green -> yellow -> red as power increases
+      let powerColor: string;
+      if (powerRatio < 0.4) {
+        powerColor = `rgba(78, 203, 113, ${0.8 + pulse * 0.2})`; // Green
+      } else if (powerRatio < 0.7) {
+        powerColor = `rgba(255, 217, 61, ${0.8 + pulse * 0.2})`; // Yellow
+      } else {
+        powerColor = `rgba(255, 107, 107, ${0.8 + pulse * 0.2})`; // Red
+      }
+
+      // Draw power fill line (thicker, solid)
+      ctx.strokeStyle = powerColor;
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(muzzleWorldX, muzzleWorldY);
+      ctx.lineTo(powerEndX, powerEndY);
+      ctx.stroke();
+
+      // Glow effect for power line
+      ctx.strokeStyle = powerColor.replace(/[\d.]+\)$/, '0.3)');
+      ctx.lineWidth = 12;
+      ctx.beginPath();
+      ctx.moveTo(muzzleWorldX, muzzleWorldY);
+      ctx.lineTo(powerEndX, powerEndY);
+      ctx.stroke();
+
+      // Power percentage text near the power line end
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px "Courier New"';
+      ctx.textAlign = 'center';
+      const textOffsetX = Math.sin(angleRad) * 15 * direction;
+      const textOffsetY = Math.cos(angleRad) * 15;
+      ctx.fillText(`${Math.round(chargingPower)}%`, powerEndX + textOffsetX, powerEndY + textOffsetY);
+    }
+
     // === DASHED AIMING LINE ===
-    ctx.strokeStyle = `rgba(255, 255, 255, ${pulse * 0.7})`;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${pulse * 0.5})`;
     ctx.lineWidth = 2;
+    ctx.lineCap = 'butt';
     ctx.setLineDash([dashLength, gapLength]);
     ctx.lineDashOffset = -this.idleTime * 20; // Animated dash
 
