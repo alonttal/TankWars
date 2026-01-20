@@ -76,7 +76,11 @@ interface FireParticle {
   size: number;
 }
 
+// Ant pixel scale - smaller than terrain for more detail
+const ANT_PIXEL_SCALE = 2;
+
 export class Ant {
+
   x: number;
   y: number;
   angle: number; // in degrees, 0 = right, 90 = up, 180 = left
@@ -684,7 +688,7 @@ export class Ant {
       ctx.translate(this.hitReactionX, this.hitReactionY);
     }
 
-    // Draw smoke rings (behind everything)
+    // Draw smoke rings (behind everything) - rendered directly, not pixelated
     for (const ring of this.smokeRings) {
       ctx.fillStyle = `rgba(150, 150, 150, ${ring.alpha * 0.6})`;
       ctx.beginPath();
@@ -702,368 +706,9 @@ export class Ant {
       ctx.fill();
     }
 
-    // Calculate damage tinting
-    const healthPercent = this.health / 100;
-
-    // Ant body is black, helmet is team color
-    let antColor = '#1a1a1a'; // Dark black for body
-    let highlightColor = '#3a3a3a'; // Subtle highlight
-    let shadowColor = '#0a0a0a'; // Very dark for legs/arms
-
-    // Helmet keeps team color
-    let helmetColor = this.color;
-    let helmetHighlight = this.lightenColor(this.color, 40);
-
-    if (healthPercent < 1) {
-      const damageDarken = Math.floor((1 - healthPercent) * 20);
-      helmetColor = this.darkenColor(this.color, damageDarken);
-      helmetHighlight = this.darkenColor(this.lightenColor(this.color, 40), damageDarken);
-    }
-
-    if (this.damageFlash > 0) {
-      antColor = '#fff';
-      highlightColor = '#fff';
-      shadowColor = '#ddd';
-      helmetColor = '#fff';
-      helmetHighlight = '#fff';
-    }
-
-    // Idle animation - subtle breathing movement
-    const breathe = Math.sin(this.idleTime * 2) * 0.5;
-
-    // Direction the ant faces
-    const direction = this.facingRight ? 1 : -1;
-
-    // Base position
-    const baseY = this.y; // Ground level
-    const bodyX = this.x;
-
-    // === SHADOW ===
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-    ctx.beginPath();
-    ctx.ellipse(this.x - direction * 2, baseY + 2, 18, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === BAZOOKA AND ARMS (drawn first, behind the ant body) ===
-    const angleRad = (this.angle * Math.PI) / 180;
-    const bazookaLength = BARREL_LENGTH - this.recoilOffset;
-
-    // Position thorax early for arm calculations
-    const thoraxX = bodyX + direction * 8;
-    const thoraxY = baseY - 22 + breathe;
-
-    // Bazooka on back shoulder (opposite side, behind body)
-    const bazookaStartX = thoraxX - direction * 6;
-    const bazookaStartY = thoraxY;
-
-    // === BAZOOKA ===
-    ctx.save();
-    ctx.translate(bazookaStartX, bazookaStartY);
-    ctx.rotate(-angleRad);
-
-    // Main tube (olive/army green)
-    ctx.fillStyle = '#4A5D23';
-    ctx.beginPath();
-    ctx.roundRect(-4, -5, bazookaLength + 4, 10, 3);
-    ctx.fill();
-
-    // Tube highlight
-    ctx.fillStyle = '#5C7A29';
-    ctx.beginPath();
-    ctx.roundRect(-2, -4, bazookaLength, 4, 2);
-    ctx.fill();
-
-    // Back opening
-    ctx.fillStyle = '#2D3A16';
-    ctx.beginPath();
-    ctx.arc(-2, 0, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#1a1a1a';
-    ctx.beginPath();
-    ctx.arc(-2, 0, 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Front muzzle
-    ctx.fillStyle = '#2D3A16';
-    ctx.beginPath();
-    ctx.arc(bazookaLength, 0, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#1a1a1a';
-    ctx.beginPath();
-    ctx.arc(bazookaLength, 0, 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Sight on top
-    ctx.fillStyle = '#333';
-    ctx.beginPath();
-    ctx.roundRect(6, -8, 6, 4, 1);
-    ctx.fill();
-
-    // Grip underneath
-    ctx.fillStyle = '#3D2B1F';
-    ctx.beginPath();
-    ctx.roundRect(10, 4, 8, 5, 2);
-    ctx.fill();
-
-    ctx.restore();
-
-    // === BACK ARM (behind body, supporting bazooka) ===
-    ctx.fillStyle = shadowColor;
-    const backGripX = bazookaStartX + Math.cos(angleRad) * 4;
-    const backGripY = bazookaStartY - Math.sin(angleRad) * 4;
-
-    ctx.beginPath();
-    ctx.moveTo(thoraxX - direction * 4, thoraxY + 2);
-    ctx.quadraticCurveTo(
-      thoraxX - direction * 6, thoraxY,
-      backGripX, backGripY + 4
-    );
-    ctx.lineTo(backGripX + 2, backGripY + 6);
-    ctx.quadraticCurveTo(
-      thoraxX - direction * 5, thoraxY + 2,
-      thoraxX - direction * 3, thoraxY + 4
-    );
-    ctx.fill();
-
-    // === ABDOMEN (lower body - horizontal oval, slightly tilted up at front) ===
-    const abdomenX = bodyX - direction * 6;
-    const abdomenY = baseY - 10 + breathe;
-
-    ctx.fillStyle = antColor;
-    ctx.beginPath();
-    ctx.ellipse(abdomenX, abdomenY, 11, 7, direction * 0.15, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Abdomen highlight
-    ctx.fillStyle = highlightColor;
-    ctx.beginPath();
-    ctx.ellipse(abdomenX - 2, abdomenY - 3, 4, 2.5, direction * 0.15, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === CONNECTOR: Abdomen to Waist (petiole) ===
-    const waistX = bodyX + direction * 4;
-    const waistY = baseY - 15 + breathe;
-
-    ctx.fillStyle = shadowColor;
-    ctx.beginPath();
-    ctx.moveTo(abdomenX + direction * 8, abdomenY - 2);
-    ctx.quadraticCurveTo(
-      waistX - direction * 2, waistY + 2,
-      waistX, waistY
-    );
-    ctx.quadraticCurveTo(
-      waistX - direction * 2, waistY - 2,
-      abdomenX + direction * 8, abdomenY - 4
-    );
-    ctx.fill();
-
-    // Waist node (petiole)
-    ctx.beginPath();
-    ctx.ellipse(waistX, waistY, 3, 4, direction * -0.4, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === CONNECTOR: Waist to Thorax ===
-    ctx.fillStyle = antColor;
-    ctx.beginPath();
-    ctx.moveTo(waistX + direction * 2, waistY - 2);
-    ctx.quadraticCurveTo(
-      thoraxX - direction * 4, thoraxY + 6,
-      thoraxX - direction * 2, thoraxY + 5
-    );
-    ctx.lineTo(thoraxX - direction * 2, thoraxY + 3);
-    ctx.quadraticCurveTo(
-      thoraxX - direction * 5, thoraxY + 4,
-      waistX + direction * 2, waistY
-    );
-    ctx.fill();
-
-    // === THORAX (upper body - angled upward) ===
-    // Note: thoraxX and thoraxY already declared earlier for bazooka positioning
-
-    ctx.fillStyle = antColor;
-    ctx.beginPath();
-    ctx.ellipse(thoraxX, thoraxY, 6, 8, direction * -0.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Thorax highlight
-    ctx.fillStyle = highlightColor;
-    ctx.beginPath();
-    ctx.ellipse(thoraxX - 1, thoraxY - 3, 2.5, 3, direction * -0.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === CONNECTOR: Thorax to Neck ===
-    const neckX = bodyX + direction * 13;
-    const neckY = baseY - 30 + breathe;
-
-    ctx.fillStyle = shadowColor;
-    ctx.beginPath();
-    ctx.moveTo(thoraxX + direction * 3, thoraxY - 5);
-    ctx.quadraticCurveTo(
-      neckX - direction * 2, neckY + 4,
-      neckX, neckY + 2
-    );
-    ctx.lineTo(neckX, neckY);
-    ctx.quadraticCurveTo(
-      neckX - direction * 3, neckY + 2,
-      thoraxX + direction * 2, thoraxY - 6
-    );
-    ctx.fill();
-
-    // Neck node
-    ctx.beginPath();
-    ctx.ellipse(neckX, neckY, 2.5, 3, direction * -0.3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === CONNECTOR: Neck to Head ===
-    const headX = bodyX + direction * 18;
-    const headY = baseY - 36 + breathe;
-    const headRadius = 8;
-
-    ctx.fillStyle = antColor;
-    ctx.beginPath();
-    ctx.moveTo(neckX + direction * 1, neckY - 2);
-    ctx.quadraticCurveTo(
-      headX - direction * 6, headY + 6,
-      headX - direction * 4, headY + 5
-    );
-    ctx.lineTo(headX - direction * 4, headY + 3);
-    ctx.quadraticCurveTo(
-      headX - direction * 7, headY + 4,
-      neckX + direction * 1, neckY
-    );
-    ctx.fill();
-
-    // === HEAD ===
-    ctx.fillStyle = antColor;
-    ctx.beginPath();
-    ctx.arc(headX, headY, headRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Head highlight
-    ctx.fillStyle = highlightColor;
-    ctx.beginPath();
-    ctx.arc(headX - 2, headY - 3, headRadius / 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === 4 LEGS (from abdomen, going down) ===
-    ctx.fillStyle = shadowColor;
-    const legShift = Math.sin(this.idleTime * 3) * 1;
-
-    // Back legs (from back of abdomen)
-    const backLegX = abdomenX - direction * 5;
-    // Back left
-    ctx.beginPath();
-    ctx.moveTo(backLegX, abdomenY + 3);
-    ctx.quadraticCurveTo(backLegX - 6, abdomenY + 8, backLegX - 8 - legShift, baseY);
-    ctx.lineTo(backLegX - 5 - legShift, baseY);
-    ctx.quadraticCurveTo(backLegX - 4, abdomenY + 6, backLegX + 2, abdomenY + 3);
-    ctx.fill();
-    // Back right
-    ctx.beginPath();
-    ctx.moveTo(backLegX, abdomenY + 3);
-    ctx.quadraticCurveTo(backLegX + 6, abdomenY + 8, backLegX + 8 + legShift, baseY);
-    ctx.lineTo(backLegX + 5 + legShift, baseY);
-    ctx.quadraticCurveTo(backLegX + 4, abdomenY + 6, backLegX - 2, abdomenY + 3);
-    ctx.fill();
-
-    // Front legs (from front of abdomen, closer to thorax connection)
-    const frontLegX = abdomenX + direction * 6;
-    // Front left
-    ctx.beginPath();
-    ctx.moveTo(frontLegX, abdomenY + 2);
-    ctx.quadraticCurveTo(frontLegX - 5, abdomenY + 8, frontLegX - 5 + legShift, baseY);
-    ctx.lineTo(frontLegX - 2 + legShift, baseY);
-    ctx.quadraticCurveTo(frontLegX - 3, abdomenY + 6, frontLegX + 2, abdomenY + 2);
-    ctx.fill();
-    // Front right
-    ctx.beginPath();
-    ctx.moveTo(frontLegX, abdomenY + 2);
-    ctx.quadraticCurveTo(frontLegX + 5, abdomenY + 8, frontLegX + 5 - legShift, baseY);
-    ctx.lineTo(frontLegX + 2 - legShift, baseY);
-    ctx.quadraticCurveTo(frontLegX + 3, abdomenY + 6, frontLegX - 2, abdomenY + 2);
-    ctx.fill();
-
-    // === HELMET (team color) ===
-    ctx.fillStyle = helmetColor;
-    ctx.beginPath();
-    ctx.ellipse(headX, headY - 5, headRadius + 2, 6, 0, Math.PI, Math.PI * 2);
-    ctx.fill();
-
-    // Helmet shine
-    ctx.fillStyle = helmetHighlight;
-    ctx.beginPath();
-    ctx.ellipse(headX - 2, headY - 7, 4, 2, -0.3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === BIG EYES (cartoon style) ===
-    // Eye white
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.ellipse(headX + direction * 4, headY - 1, 4, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Pupil
-    ctx.fillStyle = '#111';
-    ctx.beginPath();
-    ctx.arc(headX + direction * 5, headY, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Eye shine
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(headX + direction * 5.5, headY - 1, 1, 0, Math.PI * 2);
-    ctx.fill();
-
-    // === ANTENNAE ===
-    ctx.fillStyle = shadowColor;
-    const antennaBaseX = headX - direction * 2;
-    const antennaBaseY = headY - headRadius;
-
-    // Left antenna
-    ctx.beginPath();
-    ctx.moveTo(antennaBaseX - 2, antennaBaseY);
-    ctx.quadraticCurveTo(
-      antennaBaseX - 6, antennaBaseY - 10,
-      antennaBaseX - 4 + Math.sin(this.idleTime * 4) * 2, antennaBaseY - 14
-    );
-    ctx.lineTo(antennaBaseX - 2 + Math.sin(this.idleTime * 4) * 2, antennaBaseY - 13);
-    ctx.quadraticCurveTo(
-      antennaBaseX - 4, antennaBaseY - 8,
-      antennaBaseX, antennaBaseY
-    );
-    ctx.fill();
-
-    // Right antenna
-    ctx.beginPath();
-    ctx.moveTo(antennaBaseX + 2, antennaBaseY);
-    ctx.quadraticCurveTo(
-      antennaBaseX + 6, antennaBaseY - 10,
-      antennaBaseX + 4 + Math.sin(this.idleTime * 4 + 1) * 2, antennaBaseY - 14
-    );
-    ctx.lineTo(antennaBaseX + 2 + Math.sin(this.idleTime * 4 + 1) * 2, antennaBaseY - 13);
-    ctx.quadraticCurveTo(
-      antennaBaseX + 4, antennaBaseY - 8,
-      antennaBaseX, antennaBaseY
-    );
-    ctx.fill();
-
-    // === FRONT ARM (drawn after body, in front, supporting the bazooka) ===
-    ctx.fillStyle = shadowColor;
-    const frontGripX = bazookaStartX + Math.cos(angleRad) * 14;
-    const frontGripY = bazookaStartY - Math.sin(angleRad) * 14;
-
-    ctx.beginPath();
-    ctx.moveTo(thoraxX + direction * 4, thoraxY + 2);
-    ctx.quadraticCurveTo(
-      thoraxX + direction * 2, thoraxY - 2,
-      frontGripX, frontGripY + 4
-    );
-    ctx.lineTo(frontGripX + 2, frontGripY + 6);
-    ctx.quadraticCurveTo(
-      thoraxX + direction * 3, thoraxY,
-      thoraxX + direction * 5, thoraxY + 4
-    );
-    ctx.fill();
+    // === PIXEL ART ANT RENDERING ===
+    // Render directly to main canvas using pixel blocks
+    this.renderAntBody(ctx, isCurrentPlayer);
 
     // Draw spark particles
     for (const particle of this.sparkParticles) {
@@ -1075,7 +720,7 @@ export class Ant {
       ctx.fill();
     }
 
-    // Draw fire particles (critical health)
+    // Draw fire particles (critical health) - rendered directly, not pixelated
     for (const particle of this.fireParticles) {
       const lifeRatio = particle.life / particle.maxLife;
       ctx.fillStyle = `rgba(255, ${Math.floor(100 + lifeRatio * 100)}, 0, ${lifeRatio})`;
@@ -1089,48 +734,230 @@ export class Ant {
       ctx.fill();
     }
 
-    // === CURRENT PLAYER INDICATOR ===
-    if (isCurrentPlayer) {
-      const arrowBounce = Math.sin(this.idleTime * 3) * 3;
-      const chevronY = headY - headRadius - 14 + arrowBounce;
+    ctx.restore();
+  }
 
-      ctx.fillStyle = '#FFF';
-      ctx.beginPath();
-      ctx.moveTo(headX - 6, chevronY - 8);
-      ctx.lineTo(headX, chevronY);
-      ctx.lineTo(headX + 6, chevronY - 8);
-      ctx.lineTo(headX + 4, chevronY - 8);
-      ctx.lineTo(headX, chevronY - 3);
-      ctx.lineTo(headX - 4, chevronY - 8);
-      ctx.closePath();
-      ctx.fill();
+  // Helper to draw a single pixel block (2x2 screen pixels for ants)
+  private drawPixel(ctx: CanvasRenderingContext2D, x: number, y: number, color: string): void {
+    ctx.fillStyle = color;
+    ctx.fillRect(x * ANT_PIXEL_SCALE, y * ANT_PIXEL_SCALE, ANT_PIXEL_SCALE, ANT_PIXEL_SCALE);
+  }
+
+  // Render the ant body as pixel art (2x2 pixels for more detail)
+  private renderAntBody(ctx: CanvasRenderingContext2D, isCurrentPlayer: boolean): void {
+    const healthPercent = this.health / 100;
+    const direction = this.facingRight ? 1 : -1;
+
+    // Convert world position to pixel grid (2x2 scale)
+    const baseX = Math.floor(this.x / ANT_PIXEL_SCALE);
+    const baseY = Math.floor(this.y / ANT_PIXEL_SCALE);
+
+    // Colors
+    let bodyColor = '#2a2a2a';
+    let bodyDark = '#1a1a1a';
+    let bodyLight = '#3a3a3a';
+    let helmetColor = this.color;
+    let helmetLight = this.lightenColor(this.color, 50);
+    let helmetDark = this.darkenColor(this.color, 30);
+
+    if (this.damageFlash > 0) {
+      bodyColor = '#fff';
+      bodyDark = '#ddd';
+      bodyLight = '#fff';
+      helmetColor = '#fff';
+      helmetLight = '#fff';
+      helmetDark = '#ddd';
+    } else if (healthPercent < 1) {
+      const darken = Math.floor((1 - healthPercent) * 30);
+      helmetColor = this.darkenColor(this.color, darken);
+      helmetLight = this.darkenColor(this.lightenColor(this.color, 50), darken);
+      helmetDark = this.darkenColor(this.color, darken + 30);
+    }
+
+    // Animation offset
+    const breatheOffset = Math.floor(Math.sin(this.idleTime * 2) * 0.5);
+    const legAnim = Math.floor(Math.sin(this.idleTime * 4) * 1);
+
+    // Bazooka angle
+    const angleRad = (this.angle * Math.PI) / 180;
+    const bazookaLen = 12; // pixels at 2x2 scale
+
+    // === SHADOW ===
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.fillRect((baseX - 8) * ANT_PIXEL_SCALE, (baseY + 1) * ANT_PIXEL_SCALE, 18 * ANT_PIXEL_SCALE, 2 * ANT_PIXEL_SCALE);
+
+    // === DRAW BAZOOKA (behind ant) ===
+    const bazookaColor = '#4A5D23';
+    const bazookaLight = '#5C7A29';
+    const bazookaDark = '#2D3A16';
+
+    // Shoulder position (where bazooka attaches)
+    const shoulderX = baseX + direction * 2;
+    const shoulderY = baseY - 10 + breatheOffset;
+
+    // Draw bazooka tube along angle (thicker tube)
+    for (let i = 0; i < bazookaLen; i++) {
+      const px = shoulderX + Math.round(Math.cos(angleRad) * i * direction);
+      const py = shoulderY - Math.round(Math.sin(angleRad) * i);
+      // Main tube
+      this.drawPixel(ctx, px, py, bazookaColor);
+      this.drawPixel(ctx, px, py - 1, bazookaLight);
+      this.drawPixel(ctx, px, py + 1, bazookaDark);
+    }
+    // Muzzle opening
+    const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * bazookaLen * direction);
+    const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * bazookaLen);
+    this.drawPixel(ctx, muzzleX, muzzleY, bazookaDark);
+    this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
+    this.drawPixel(ctx, muzzleX, muzzleY + 1, '#1a1a1a');
+
+    // === BACK LEGS (6 legs total for ant, showing 4) ===
+    // Rear pair
+    this.drawPixel(ctx, baseX - direction * 6, baseY - 2, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 7 - legAnim, baseY - 1, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 8 - legAnim, baseY, bodyDark);
+    // Second rear
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 3, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 5 + legAnim, baseY - 2, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 6 + legAnim, baseY - 1, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 6 + legAnim, baseY, bodyDark);
+
+    // === ABDOMEN (large oval back segment) ===
+    // Top row
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 6 + breatheOffset, bodyLight);
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 6 + breatheOffset, bodyLight);
+    // Upper middle
+    this.drawPixel(ctx, baseX - direction * 3, baseY - 5 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 5 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 5 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 6, baseY - 5 + breatheOffset, bodyDark);
+    // Lower middle
+    this.drawPixel(ctx, baseX - direction * 3, baseY - 4 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 4 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 4 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 6, baseY - 4 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 7, baseY - 4 + breatheOffset, bodyDark);
+    // Bottom
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 3 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 3 + breatheOffset, bodyDark);
+
+    // === PETIOLE (thin waist) ===
+    this.drawPixel(ctx, baseX - direction * 1, baseY - 5 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 2, baseY - 5 + breatheOffset, bodyDark);
+
+    // === THORAX (middle segment) ===
+    this.drawPixel(ctx, baseX, baseY - 7 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 1, baseY - 7 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX, baseY - 6 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 1, baseY - 6 + breatheOffset, bodyLight);
+    this.drawPixel(ctx, baseX + direction * 2, baseY - 7 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 2, baseY - 8 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 3, baseY - 9 + breatheOffset, bodyDark);
+
+    // === FRONT/MIDDLE LEGS ===
+    // Middle pair
+    this.drawPixel(ctx, baseX, baseY - 5 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - legAnim, baseY - 4, bodyDark);
+    this.drawPixel(ctx, baseX - legAnim, baseY - 3, bodyDark);
+    this.drawPixel(ctx, baseX - legAnim - 1, baseY - 2, bodyDark);
+    // Front pair
+    this.drawPixel(ctx, baseX + direction * 2, baseY - 6, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 2 + legAnim, baseY - 5, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 2 + legAnim, baseY - 4, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 3 + legAnim, baseY - 3, bodyDark);
+
+    // === NECK ===
+    this.drawPixel(ctx, baseX + direction * 4, baseY - 10 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 11 + breatheOffset, bodyDark);
+
+    // === HEAD (round) ===
+    // Top
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 15 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 15 + breatheOffset, bodyColor);
+    // Upper
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 14 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 14 + breatheOffset, bodyLight);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 14 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, bodyDark);
+    // Middle
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 13 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 13 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 13 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 13 + breatheOffset, bodyDark);
+    // Lower
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 12 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 12 + breatheOffset, bodyDark);
+
+    // === HELMET (team color, military style on top of head) ===
+    // Helmet top
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 17 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 17 + breatheOffset, helmetLight);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 17 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 17 + breatheOffset, helmetColor);
+    // Helmet middle
+    this.drawPixel(ctx, baseX + direction * 4, baseY - 16 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 16 + breatheOffset, helmetLight);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 16 + breatheOffset, helmetLight);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 16 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 16 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 16 + breatheOffset, helmetDark);
+    // Helmet brim
+    this.drawPixel(ctx, baseX + direction * 4, baseY - 15 + breatheOffset, helmetDark);
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, helmetDark);
+    this.drawPixel(ctx, baseX + direction * 10, baseY - 15 + breatheOffset, helmetDark);
+
+    // === EYE (large cartoon eye) ===
+    // Eye white
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#fff');
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#fff');
+    // Pupil
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#111');
+
+    // === ANTENNAE ===
+    const antennaWave = Math.floor(Math.sin(this.idleTime * 4) * 1);
+    // Left antenna
+    this.drawPixel(ctx, baseX + direction * 5 + antennaWave, baseY - 18 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 4 + antennaWave, baseY - 19 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 4 + antennaWave, baseY - 20 + breatheOffset, bodyColor);
+    // Right antenna
+    this.drawPixel(ctx, baseX + direction * 7 - antennaWave, baseY - 18 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 8 - antennaWave, baseY - 19 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 8 - antennaWave, baseY - 20 + breatheOffset, bodyColor);
+
+    // === ARM holding bazooka ===
+    const armX = shoulderX + Math.round(Math.cos(angleRad) * 4 * direction);
+    const armY = shoulderY - Math.round(Math.sin(angleRad) * 4) + 1;
+    this.drawPixel(ctx, armX, armY, bodyDark);
+    this.drawPixel(ctx, armX, armY + 1, bodyDark);
+
+    // === CURRENT PLAYER INDICATOR (arrow pointing down) ===
+    if (isCurrentPlayer) {
+      const bounce = Math.floor(Math.sin(this.idleTime * 3) * 2);
+      // Arrow shape
+      this.drawPixel(ctx, baseX + direction * 6, baseY - 24 + bounce, '#fff');
+      this.drawPixel(ctx, baseX + direction * 7, baseY - 24 + bounce, '#fff');
+      this.drawPixel(ctx, baseX + direction * 5, baseY - 25 + bounce, '#fff');
+      this.drawPixel(ctx, baseX + direction * 6, baseY - 25 + bounce, '#fff');
+      this.drawPixel(ctx, baseX + direction * 7, baseY - 25 + bounce, '#fff');
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 25 + bounce, '#fff');
+      this.drawPixel(ctx, baseX + direction * 6, baseY - 26 + bounce, '#fff');
+      this.drawPixel(ctx, baseX + direction * 7, baseY - 26 + bounce, '#fff');
     }
 
     // === HEALTH BAR ===
-    const healthBarWidth = 32;
-    const healthBarHeight = 5;
-    const healthBarY = headY - headRadius - 12;
+    const healthBarY = baseY - 22 + breatheOffset;
+    const healthPixels = Math.ceil(healthPercent * 12);
+    const healthColor = healthPercent > 0.5 ? '#4ECB71' : healthPercent > 0.25 ? '#FFD93D' : '#FF6B6B';
 
     // Background
-    ctx.fillStyle = '#333';
-    ctx.beginPath();
-    ctx.roundRect(headX - healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight, 2);
-    ctx.fill();
-
+    for (let i = 0; i < 12; i++) {
+      this.drawPixel(ctx, baseX + direction * i, healthBarY, '#333');
+    }
     // Health fill
-    const healthColor = healthPercent > 0.5 ? '#4ECB71' : healthPercent > 0.25 ? '#FFD93D' : '#FF6B6B';
-    ctx.fillStyle = healthColor;
-    ctx.beginPath();
-    ctx.roundRect(
-      headX - healthBarWidth / 2 + 1,
-      healthBarY + 1,
-      (healthBarWidth - 2) * healthPercent,
-      healthBarHeight - 2,
-      1
-    );
-    ctx.fill();
-
-    ctx.restore();
+    for (let i = 0; i < healthPixels; i++) {
+      this.drawPixel(ctx, baseX + direction * i, healthBarY, healthColor);
+    }
   }
 
   private renderDestroyed(ctx: CanvasRenderingContext2D): void {
@@ -1150,136 +977,112 @@ export class Ant {
       ctx.fill();
     }
 
-    // Draw destruction debris (ant body parts)
+    // Draw destruction debris as pixel blocks
     for (const debris of this.destructionDebris) {
       const alpha = Math.min(1, debris.life);
-      ctx.save();
-      ctx.translate(debris.x, debris.y);
-      ctx.rotate(debris.rotation);
+      const px = Math.floor(debris.x / ANT_PIXEL_SCALE);
+      const py = Math.floor(debris.y / ANT_PIXEL_SCALE);
       ctx.globalAlpha = alpha;
-
-      ctx.fillStyle = debris.color;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, debris.size / 2, debris.size / 3, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
+      this.drawPixel(ctx, px, py, debris.color);
     }
+    ctx.globalAlpha = 1;
+
+    // Render dead ant as pixel art
+    this.renderDeadAntBody(ctx);
+  }
+
+  // Render the dead ant body as pixel art (2x2 scale)
+  private renderDeadAntBody(ctx: CanvasRenderingContext2D): void {
+    const baseX = Math.floor(this.x / ANT_PIXEL_SCALE);
+    const baseY = Math.floor(this.y / ANT_PIXEL_SCALE);
+
+    const bodyColor = this.deathAnimationStage === 1 ? '#fff' : '#2a2a2a';
+    const bodyDark = this.deathAnimationStage === 1 ? '#ddd' : '#1a1a1a';
+    const bodyLight = this.deathAnimationStage === 1 ? '#fff' : '#3a3a3a';
+    const helmetColor = this.deathAnimationStage === 1 ? '#fff' : this.darkenColor(this.color, 30);
+    const helmetLight = this.deathAnimationStage === 1 ? '#fff' : this.color;
 
     // During death animation stages 1-2, show the ant tumbling
     if (this.deathAnimationStage === 1 || this.deathAnimationStage === 2) {
-      ctx.save();
-      ctx.translate(this.x, this.y + this.deathPopY);
+      const popOffset = Math.floor(this.deathPopY / ANT_PIXEL_SCALE);
+      const wobble = Math.floor(Math.sin(this.idleTime * 15) * 2);
+      const rotation = Math.floor(Math.sin(this.idleTime * 8) * 3);
 
-      if (this.deathAnimationStage === 2) {
-        const wobble = Math.sin(this.idleTime * 15) * 0.4;
-        ctx.rotate(wobble + 0.3);
-      }
-
-      // Black body (flash white during stage 1)
-      const bodyColor = this.deathAnimationStage === 1 ? '#fff' : '#1a1a1a';
-      ctx.fillStyle = bodyColor;
-
-      // Horizontal abdomen
-      ctx.beginPath();
-      ctx.ellipse(-8, -10, 10, 6, 0.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Thorax angled up
-      ctx.beginPath();
-      ctx.ellipse(4, -18, 6, 8, -0.4, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Head
-      ctx.beginPath();
-      ctx.arc(12, -26, 7, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Helmet (team color)
-      ctx.fillStyle = this.deathAnimationStage === 1 ? '#fff' : this.darkenColor(this.color, 30);
-      ctx.beginPath();
-      ctx.ellipse(12, -31, 9, 5, 0, Math.PI, Math.PI * 2);
-      ctx.fill();
-
-      // X eye
-      ctx.fillStyle = '#fff';
-      ctx.font = '10px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('x', 14, -24);
-
-      // Legs flailing (black)
-      ctx.fillStyle = '#0a0a0a';
-      for (let i = 0; i < 4; i++) {
-        const legAngle = Math.sin(this.idleTime * 12 + i) * 0.5;
-        ctx.save();
-        ctx.translate(-8 + i * 3, -8);
-        ctx.rotate(legAngle + 0.8);
-        ctx.beginPath();
-        ctx.ellipse(6, 0, 5, 2, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      ctx.restore();
-    } else {
-      // Fallen ant wreckage
-      const wreckY = this.y - 4;
-
-      // Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-      ctx.beginPath();
-      ctx.ellipse(this.x, this.y + 1, 20, 4, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Black body for dead ant
-      ctx.fillStyle = '#1a1a1a';
-
-      // Abdomen lying flat
-      ctx.beginPath();
-      ctx.ellipse(this.x - 10, wreckY, 10, 4, 0.1, 0, Math.PI * 2);
-      ctx.fill();
-
+      // Tumbling ant (more detailed at 2x2 scale)
+      // Abdomen
+      this.drawPixel(ctx, baseX - 4 + wobble, baseY - 4 + popOffset + rotation, bodyColor);
+      this.drawPixel(ctx, baseX - 5 + wobble, baseY - 4 + popOffset + rotation, bodyColor);
+      this.drawPixel(ctx, baseX - 6 + wobble, baseY - 4 + popOffset + rotation, bodyDark);
+      this.drawPixel(ctx, baseX - 4 + wobble, baseY - 5 + popOffset + rotation, bodyLight);
+      this.drawPixel(ctx, baseX - 5 + wobble, baseY - 5 + popOffset + rotation, bodyColor);
+      // Petiole
+      this.drawPixel(ctx, baseX - 2 + wobble, baseY - 5 + popOffset, bodyDark);
       // Thorax
-      ctx.beginPath();
-      ctx.ellipse(this.x + 2, wreckY - 1, 6, 3, -0.2, 0, Math.PI * 2);
-      ctx.fill();
+      this.drawPixel(ctx, baseX + wobble, baseY - 6 + popOffset - rotation, bodyColor);
+      this.drawPixel(ctx, baseX + 1 + wobble, baseY - 6 + popOffset - rotation, bodyColor);
+      this.drawPixel(ctx, baseX + 1 + wobble, baseY - 7 + popOffset - rotation, bodyLight);
+      // Head
+      this.drawPixel(ctx, baseX + 4 + wobble, baseY - 9 + popOffset - rotation, bodyColor);
+      this.drawPixel(ctx, baseX + 5 + wobble, baseY - 9 + popOffset - rotation, bodyColor);
+      this.drawPixel(ctx, baseX + 4 + wobble, baseY - 10 + popOffset - rotation, bodyColor);
+      this.drawPixel(ctx, baseX + 5 + wobble, baseY - 10 + popOffset - rotation, bodyDark);
+      // Helmet
+      this.drawPixel(ctx, baseX + 3 + wobble, baseY - 11 + popOffset - rotation, helmetColor);
+      this.drawPixel(ctx, baseX + 4 + wobble, baseY - 11 + popOffset - rotation, helmetLight);
+      this.drawPixel(ctx, baseX + 5 + wobble, baseY - 11 + popOffset - rotation, helmetColor);
+      this.drawPixel(ctx, baseX + 6 + wobble, baseY - 11 + popOffset - rotation, helmetColor);
+      // X eye
+      this.drawPixel(ctx, baseX + 6 + wobble, baseY - 9 + popOffset - rotation, '#fff');
+      // Flailing legs
+      const legAnim = Math.floor(Math.sin(this.idleTime * 12) * 2);
+      this.drawPixel(ctx, baseX - 6 + legAnim, baseY - 2 + popOffset, bodyDark);
+      this.drawPixel(ctx, baseX - 4 - legAnim, baseY - 2 + popOffset, bodyDark);
+      this.drawPixel(ctx, baseX - 2 + legAnim, baseY - 3 + popOffset, bodyDark);
+      this.drawPixel(ctx, baseX + 2 - legAnim, baseY - 5 + popOffset, bodyDark);
+    } else {
+      // Fallen ant wreckage (lying flat)
+      // Shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+      ctx.fillRect((baseX - 8) * ANT_PIXEL_SCALE, (baseY + 1) * ANT_PIXEL_SCALE, 18 * ANT_PIXEL_SCALE, 2 * ANT_PIXEL_SCALE);
 
-      // Head rolled over
-      ctx.beginPath();
-      ctx.arc(this.x + 14, wreckY, 6, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Helmet nearby (team color)
-      ctx.fillStyle = this.darkenColor(this.color, 40);
-      ctx.beginPath();
-      ctx.ellipse(this.x + 22, wreckY + 2, 5, 2, 0.4, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Legs sprawled (black)
-      ctx.fillStyle = '#0a0a0a';
-      for (let i = 0; i < 4; i++) {
-        const lx = this.x - 14 + i * 6;
-        const angle = (i % 2 === 0) ? 0.3 : -0.3;
-        ctx.beginPath();
-        ctx.ellipse(lx, wreckY + 2 + (i % 2), 5, 1.5, angle, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
+      // Abdomen (flat, lying on ground)
+      this.drawPixel(ctx, baseX - 6, baseY, bodyColor);
+      this.drawPixel(ctx, baseX - 5, baseY, bodyColor);
+      this.drawPixel(ctx, baseX - 4, baseY, bodyColor);
+      this.drawPixel(ctx, baseX - 3, baseY, bodyDark);
+      this.drawPixel(ctx, baseX - 5, baseY - 1, bodyLight);
+      // Petiole
+      this.drawPixel(ctx, baseX - 2, baseY, bodyDark);
+      // Thorax
+      this.drawPixel(ctx, baseX, baseY, bodyColor);
+      this.drawPixel(ctx, baseX + 1, baseY, bodyColor);
+      this.drawPixel(ctx, baseX + 2, baseY, bodyDark);
+      // Head (rolled)
+      this.drawPixel(ctx, baseX + 4, baseY, bodyColor);
+      this.drawPixel(ctx, baseX + 5, baseY, bodyColor);
+      this.drawPixel(ctx, baseX + 6, baseY, bodyDark);
+      this.drawPixel(ctx, baseX + 5, baseY - 1, bodyLight);
+      // Helmet (fallen off nearby)
+      this.drawPixel(ctx, baseX + 8, baseY + 1, helmetColor);
+      this.drawPixel(ctx, baseX + 9, baseY + 1, helmetLight);
+      this.drawPixel(ctx, baseX + 10, baseY + 1, helmetColor);
+      this.drawPixel(ctx, baseX + 9, baseY, helmetColor);
+      // Legs sprawled
+      this.drawPixel(ctx, baseX - 5, baseY + 1, bodyDark);
+      this.drawPixel(ctx, baseX - 3, baseY + 1, bodyDark);
+      this.drawPixel(ctx, baseX - 1, baseY + 1, bodyDark);
+      this.drawPixel(ctx, baseX + 1, baseY + 1, bodyDark);
       // Broken bazooka
-      ctx.fillStyle = '#3D4A23';
-      ctx.beginPath();
-      ctx.roundRect(this.x - 22, wreckY + 4, 14, 5, 2);
-      ctx.fill();
+      this.drawPixel(ctx, baseX - 10, baseY + 1, '#2D3A16');
+      this.drawPixel(ctx, baseX - 9, baseY + 1, '#4A5D23');
+      this.drawPixel(ctx, baseX - 8, baseY + 1, '#4A5D23');
 
-      // Smoke
-      const smokeOffset = Math.sin(this.idleTime * 2) * 2;
-      ctx.fillStyle = 'rgba(80, 80, 80, 0.4)';
-      ctx.beginPath();
-      ctx.arc(this.x, wreckY - 8 + smokeOffset, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(this.x + 6, wreckY - 14 + smokeOffset * 0.7, 3, 0, Math.PI * 2);
-      ctx.fill();
+      // Smoke puff
+      const smokeOffset = Math.floor(Math.sin(this.idleTime * 2) * 1);
+      ctx.fillStyle = 'rgba(80, 80, 80, 0.3)';
+      ctx.fillRect((baseX - 1) * ANT_PIXEL_SCALE, (baseY - 3 + smokeOffset) * ANT_PIXEL_SCALE, ANT_PIXEL_SCALE * 2, ANT_PIXEL_SCALE * 2);
+      ctx.fillStyle = 'rgba(60, 60, 60, 0.2)';
+      ctx.fillRect((baseX) * ANT_PIXEL_SCALE, (baseY - 5 + smokeOffset) * ANT_PIXEL_SCALE, ANT_PIXEL_SCALE, ANT_PIXEL_SCALE);
     }
   }
 
