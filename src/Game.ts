@@ -12,7 +12,7 @@ import { POWERUP_CONFIGS } from './powerups/PowerUpTypes.ts';
 import { WeaponSelector } from './ui/WeaponSelector.ts';
 import { BuffIndicator } from './ui/BuffIndicator.ts';
 
-type GameState = 'MENU' | 'PLAYING' | 'AI_THINKING' | 'FIRING' | 'PAUSED' | 'SETTINGS' | 'GAME_OVER';
+type GameState = 'MENU' | 'INTRO_PAN' | 'PLAYING' | 'AI_THINKING' | 'FIRING' | 'PAUSED' | 'SETTINGS' | 'GAME_OVER';
 type GameMode = 'single' | 'multi';
 
 interface MenuItem {
@@ -133,6 +133,10 @@ export class Game {
   private targetCameraOffsetX: number;
   private targetCameraOffsetY: number;
 
+  // Intro camera pan
+  private introPanPhase: number; // 0 = overview, 1 = pan to first player
+  private introPanTimer: number;
+
   // Turn timer
   private turnTimeRemaining: number;
   private maxTurnTime: number;
@@ -208,6 +212,8 @@ export class Game {
     this.cameraOffsetY = 0;
     this.targetCameraOffsetX = 0;
     this.targetCameraOffsetY = 0;
+    this.introPanPhase = 0;
+    this.introPanTimer = 0;
     this.maxTurnTime = 30; // 30 seconds per turn
     this.turnTimeRemaining = this.maxTurnTime;
     this.playerStats = [];
@@ -575,7 +581,9 @@ export class Game {
     }
 
     // Smooth camera zoom and offset with eased interpolation
-    const cameraLerpFactor = Math.min(1, deltaTime * 4);
+    // Slower interpolation during intro pan for cinematic effect
+    const lerpSpeed = (this.state === 'INTRO_PAN' && this.introPanPhase === 1) ? 1.5 : 4;
+    const cameraLerpFactor = Math.min(1, deltaTime * lerpSpeed);
     const zoomDiff = this.targetCameraZoom - this.cameraZoom;
     const xDiff = this.targetCameraOffsetX - this.cameraOffsetX;
     const yDiff = this.targetCameraOffsetY - this.cameraOffsetY;
@@ -585,6 +593,43 @@ export class Game {
 
     // Update terrain (clouds, wind particles)
     this.terrain.update(effectiveDelta, this.wind);
+
+    // Update intro camera pan
+    if (this.state === 'INTRO_PAN') {
+      this.introPanTimer -= deltaTime;
+
+      if (this.introPanPhase === 0) {
+        // Phase 0: Showing overview
+        if (this.introPanTimer <= 0) {
+          // Transition to phase 1: pan to first player
+          this.introPanPhase = 1;
+          this.introPanTimer = 3.0; // Time for slow pan/zoom animation
+
+          // Set target to first ant
+          const firstAnt = this.ants[0];
+          this.focusCameraOnAnt(firstAnt, false); // Smooth pan
+        }
+      } else if (this.introPanPhase === 1) {
+        // Phase 1: Panning to first player
+        if (this.introPanTimer <= 0) {
+          // Intro pan complete, start the game
+          this.state = 'PLAYING';
+          this.fireButton.disabled = false;
+
+          // Show UI elements
+          const firstAnt = this.ants[0];
+          this.weaponSelector.show();
+          this.buffIndicator.show();
+          this.weaponSelector.update(firstAnt);
+          this.buffIndicator.update(firstAnt);
+          this.weaponSelector.setEnabled(true);
+
+          // Show initial turn banner
+          const turnText = this.gameMode === 'single' ? 'YOUR TURN' : 'PLAYER 1 TURN';
+          this.showTurnBanner(turnText);
+        }
+      }
+    }
 
     // Update turn timer (only during human player's turn)
     if (this.state === 'PLAYING' && !this.isAITurn()) {
@@ -1057,14 +1102,19 @@ export class Game {
 
     // ===== LAYER 3: UI (no camera movement) =====
 
+    // Render intro pan overlay
+    if (this.state === 'INTRO_PAN') {
+      this.renderIntroPanOverlay();
+    }
+
     // Render HUD elements (in screen space, no camera transform)
     // Render wind indicator arrow (top right)
-    if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING') {
+    if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING' || this.state === 'INTRO_PAN') {
       this.renderWindArrow();
     }
 
     // Render HUD health bars
-    if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING') {
+    if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING' || this.state === 'INTRO_PAN') {
       this.renderHUDHealthBars();
     }
 
@@ -1530,27 +1580,73 @@ export class Game {
     this.angleValue.textContent = firstAnt.angle.toString();
 
     this.updateUI();
-    this.state = 'PLAYING';
-    this.fireButton.disabled = false;
+    this.fireButton.disabled = true; // Disable until intro pan completes
 
-    // Show UI elements
-    this.weaponSelector.show();
-    this.buffIndicator.show();
-    this.weaponSelector.update(firstAnt);
-    this.buffIndicator.update(firstAnt);
-    this.weaponSelector.setEnabled(true);
-
-    // Show initial turn banner
-    const turnText = this.gameMode === 'single' ? 'YOUR TURN' : 'PLAYER 1 TURN';
-    this.showTurnBanner(turnText);
-
-    // Focus camera on first player (snap immediately at game start)
-    this.focusCameraOnAnt(firstAnt, true);
+    // Hide UI elements during intro pan
+    this.weaponSelector.hide();
+    this.buffIndicator.hide();
 
     // Start background music
     soundManager.startMusic();
     this.musicButton.textContent = soundManager.isMusicPlaying() ? '🎵 ON' : '🎵 OFF';
     this.musicButton.classList.toggle('off', !soundManager.isMusicPlaying());
+
+    // Start intro camera pan - show overview of all ants
+    this.state = 'INTRO_PAN';
+    this.introPanPhase = 0;
+    this.introPanTimer = 2.5; // Show overview for 2.5 seconds
+
+    // Calculate camera position to show all ants
+    const minX = Math.min(...this.ants.map(a => a.x));
+    const maxX = Math.max(...this.ants.map(a => a.x));
+
+    // Calculate center point between all ants (horizontally)
+    const centerX = (minX + maxX) / 2;
+
+    // Calculate zoom to fit all ants horizontally with padding
+    // Don't zoom out too much to avoid showing map edges
+    const spanX = maxX - minX + 400; // Add horizontal padding
+    const overviewZoom = Math.max(0.4, Math.min(BASE_WIDTH / spanX, 0.7));
+
+    // Calculate visible area at this zoom level (in world coordinates)
+    const visibleHeight = BASE_HEIGHT / overviewZoom;
+
+    // Focus on terrain area - position camera so ants are visible
+    // Keep them in lower portion of view, but not too low to show bottom edge
+    const avgAntY = this.ants.reduce((sum, a) => sum + a.y, 0) / this.ants.length;
+
+    // Target Y position in world - show ants in lower third of visible area
+    // but clamp to not go below terrain (MAP_HEIGHT is bottom of map)
+    const targetCenterY = Math.min(avgAntY + visibleHeight * 0.15, MAP_HEIGHT - visibleHeight / 2 - 50);
+
+    // Calculate offset (for the camera transform)
+    let offsetX = BASE_WIDTH / 2 - centerX;
+    let offsetY = BASE_HEIGHT / 2 - targetCenterY;
+
+    // Clamp offsets to keep view within map bounds
+    // When zoomed out, the visible area is larger, so we need stricter bounds
+    const effectiveVisibleWidth = BASE_WIDTH / overviewZoom;
+    const effectiveVisibleHeight = BASE_HEIGHT / overviewZoom;
+
+    // Don't show past left edge (world x = 0)
+    const maxOffsetX = effectiveVisibleWidth / 2 - BASE_WIDTH / 2;
+    // Don't show past right edge (world x = MAP_WIDTH)
+    const minOffsetX = BASE_WIDTH / 2 - MAP_WIDTH + effectiveVisibleWidth / 2;
+    // Don't show past top edge (world y = 0)
+    const maxOffsetY = effectiveVisibleHeight / 2 - BASE_HEIGHT / 2;
+    // Don't show past bottom edge (world y = MAP_HEIGHT)
+    const minOffsetY = BASE_HEIGHT / 2 - MAP_HEIGHT + effectiveVisibleHeight / 2;
+
+    offsetX = Math.max(minOffsetX, Math.min(maxOffsetX, offsetX));
+    offsetY = Math.max(minOffsetY, Math.min(maxOffsetY, offsetY));
+
+    // Start from zoomed out overview
+    this.cameraZoom = overviewZoom;
+    this.targetCameraZoom = overviewZoom;
+    this.cameraOffsetX = offsetX;
+    this.cameraOffsetY = offsetY;
+    this.targetCameraOffsetX = offsetX;
+    this.targetCameraOffsetY = offsetY;
   }
 
   private fire(): void {
@@ -2150,6 +2246,82 @@ export class Game {
       ctx.textAlign = 'center';
       ctx.fillText(`${Math.round(animatedHealth)}`, barX + barWidth / 2, barY + barHeight / 2 + 4);
     }
+  }
+
+  private renderIntroPanOverlay(): void {
+    const ctx = this.ctx;
+    ctx.save();
+
+    // Title banner at top
+    const bannerText = this.introPanPhase === 0 ? 'BATTLE OVERVIEW' : 'GET READY!';
+
+    // Fade effect based on phase
+    let alpha = 1;
+    if (this.introPanPhase === 0 && this.introPanTimer < 0.5) {
+      alpha = this.introPanTimer / 0.5; // Fade out at end of overview
+    } else if (this.introPanPhase === 1 && this.introPanTimer > 2.5) {
+      alpha = (3.0 - this.introPanTimer) / 0.5; // Fade in at start of pan
+    }
+
+    ctx.globalAlpha = alpha;
+
+    // Background bar
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 30, BASE_WIDTH, 50);
+
+    // Title text
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 28px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(bannerText, BASE_WIDTH / 2, 55);
+
+    // During overview phase, show player labels in world space
+    if (this.introPanPhase === 0) {
+      ctx.restore();
+      ctx.save();
+
+      // Apply camera transform for world-space labels
+      this.applyCameraTransform(1.0);
+
+      for (let i = 0; i < this.ants.length; i++) {
+        const ant = this.ants[i];
+        const label = this.gameMode === 'single'
+          ? (i === 0 ? 'YOU' : 'CPU')
+          : `P${i + 1}`;
+
+        // Label background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.beginPath();
+        ctx.roundRect(ant.x - 30, ant.y - 70, 60, 24, 6);
+        ctx.fill();
+
+        // Label border in player color
+        ctx.strokeStyle = ant.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(ant.x - 30, ant.y - 70, 60, 24, 6);
+        ctx.stroke();
+
+        // Label text
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px "Courier New"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, ant.x, ant.y - 58);
+
+        // Arrow pointing down to ant
+        ctx.fillStyle = ant.color;
+        ctx.beginPath();
+        ctx.moveTo(ant.x, ant.y - 46);
+        ctx.lineTo(ant.x - 6, ant.y - 52);
+        ctx.lineTo(ant.x + 6, ant.y - 52);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
   }
 
   private renderTurnBanner(): void {
