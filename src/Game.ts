@@ -664,7 +664,8 @@ export class Game {
       if (currentAnt && currentAnt.isAlive) {
         const clamped = this.camera.clampOffset(
           BASE_WIDTH / 2 - currentAnt.x,
-          BASE_HEIGHT / 2 - currentAnt.y
+          BASE_HEIGHT / 2 - currentAnt.y,
+          0.5 // Target zoom after resetZoom
         );
         this.camera.targetOffsetX = clamped.x;
         this.camera.targetOffsetY = clamped.y;

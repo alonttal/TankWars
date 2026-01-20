@@ -3,17 +3,25 @@ export const BASE_WIDTH = 800;
 export const BASE_HEIGHT = 500;
 
 // Map dimensions (larger than view to allow camera movement)
-export const MAP_WIDTH = 1600;
-export const MAP_HEIGHT = 900;
+// Extra width/height provides "sky buffer" to allow centering on ants at edges
+export const MAP_WIDTH = 2400;
+export const MAP_HEIGHT = 1100;
+
+// Playable area - where terrain is generated and ants can spawn
+// This is centered within the map, with sky buffer around it
+export const PLAYABLE_WIDTH = 1600;  // Original terrain width
+export const PLAYABLE_HEIGHT = 800;  // Original terrain height
+export const PLAYABLE_OFFSET_X = (MAP_WIDTH - PLAYABLE_WIDTH) / 2;   // 400px buffer on each side
+export const PLAYABLE_OFFSET_Y = (MAP_HEIGHT - PLAYABLE_HEIGHT) / 2; // 150px buffer top/bottom
 
 // Terrain bitmap scale - each bitmap cell represents NxN screen pixels
 // Higher = faster/less memory, Lower = more detail
 export const TERRAIN_SCALE = 4; // 4x4 pixels per cell = 16x less memory
 
-// Terrain generation bounds (fixed values, not proportional to MAP_HEIGHT)
+// Terrain generation bounds (relative to playable area bottom)
 // These define where the terrain surface should be generated
 export const TERRAIN_MIN_HEIGHT = 50;  // Minimum terrain height (deep valleys)
-export const TERRAIN_MAX_HEIGHT = 700; // Maximum terrain height (tall mountains)
+export const TERRAIN_MAX_HEIGHT = 650; // Maximum terrain height (tall mountains)
 
 // Camera home position offset (centers view on terrain area)
 // This offsets the view downward to show the terrain instead of empty sky

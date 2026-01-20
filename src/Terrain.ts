@@ -1,4 +1,4 @@
-import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT, TERRAIN_SCALE } from './constants.ts';
+import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT, TERRAIN_SCALE, PLAYABLE_WIDTH, PLAYABLE_HEIGHT, PLAYABLE_OFFSET_X, PLAYABLE_OFFSET_Y } from './constants.ts';
 
 interface TerrainTheme {
   name: string;
@@ -482,6 +482,7 @@ export class Terrain {
   }
 
   // Stage 1: Generate base terrain with multi-octave Perlin noise
+  // Terrain is only generated within the playable area (centered in map with sky buffer)
   private generateBaseTerrain(): void {
     // Pre-generate some random mountain/valley positions for dramatic features
     const featureCount = 4 + Math.floor(Math.random() * 4);
@@ -489,16 +490,22 @@ export class Terrain {
 
     for (let i = 0; i < featureCount; i++) {
       features.push({
-        x: 0.1 + Math.random() * 0.8, // Normalized position (0-1)
+        x: 0.1 + Math.random() * 0.8, // Normalized position within playable area (0-1)
         strength: 0.5 + Math.random() * 0.5,
         width: 0.05 + Math.random() * 0.15,
         isMountain: Math.random() > 0.4 // 60% mountains, 40% valleys
       });
     }
 
-    for (let bx = 0; bx < this.bitmapWidth; bx++) {
+    // Calculate bitmap bounds for playable area
+    const playableStartBX = Math.floor(PLAYABLE_OFFSET_X / TERRAIN_SCALE);
+    const playableEndBX = Math.floor((PLAYABLE_OFFSET_X + PLAYABLE_WIDTH) / TERRAIN_SCALE);
+    const playableBottomY = PLAYABLE_OFFSET_Y + PLAYABLE_HEIGHT;
+
+    for (let bx = playableStartBX; bx < playableEndBX; bx++) {
       const worldX = bx * TERRAIN_SCALE;
-      const normalizedX = worldX / MAP_WIDTH;
+      // Normalize X relative to playable area (0-1)
+      const normalizedX = (worldX - PLAYABLE_OFFSET_X) / PLAYABLE_WIDTH;
 
       // Base rolling terrain
       const baseNoise = this.octavePerlin(worldX * 0.004, 0.5, 3, 0.5);
@@ -527,7 +534,7 @@ export class Terrain {
       const ridgeNoise = Math.abs(this.octavePerlin(worldX * 0.008, 3.2, 2, 0.5));
       heightFactor += ridgeNoise * 0.15;
 
-      // Edge tapering
+      // Edge tapering within playable area
       const edgeFade = Math.min(normalizedX * 4, (1 - normalizedX) * 4, 1);
       heightFactor *= (0.3 + edgeFade * 0.7);
 
@@ -536,19 +543,25 @@ export class Terrain {
       const terrainHeight = TERRAIN_MIN_HEIGHT + heightFactor * (TERRAIN_MAX_HEIGHT - TERRAIN_MIN_HEIGHT);
 
       // Fill cells from bottom up to the terrain surface
-      const surfaceBy = Math.floor((MAP_HEIGHT - terrainHeight) / TERRAIN_SCALE);
+      // Surface is relative to the bottom of the playable area
+      const surfaceY = playableBottomY - terrainHeight;
+      const surfaceBy = Math.floor(surfaceY / TERRAIN_SCALE);
       for (let by = surfaceBy; by < this.bitmapHeight; by++) {
         this.setBitmapCell(bx, by);
       }
     }
   }
 
-  // Carve holes/gaps in the terrain surface
+  // Carve holes/gaps in the terrain surface (within playable area)
   private generateSurfaceHoles(): void {
     const holeCount = 2 + Math.floor(Math.random() * 3);
 
+    // Calculate bitmap bounds for playable area
+    const playableStartBX = Math.floor(PLAYABLE_OFFSET_X / TERRAIN_SCALE);
+    const playableEndBX = Math.floor((PLAYABLE_OFFSET_X + PLAYABLE_WIDTH) / TERRAIN_SCALE);
+
     for (let i = 0; i < holeCount; i++) {
-      const centerBX = Math.floor(30 + Math.random() * (this.bitmapWidth - 60));
+      const centerBX = playableStartBX + 30 + Math.floor(Math.random() * (playableEndBX - playableStartBX - 60));
       const surfaceBY = this.findSurfaceBY(centerBX);
       if (surfaceBY < 0) continue;
 
@@ -731,8 +744,8 @@ export class Terrain {
     const archCount = ARCH_COUNT_MIN + Math.floor(Math.random() * (ARCH_COUNT_MAX - ARCH_COUNT_MIN + 1));
 
     for (let i = 0; i < archCount; i++) {
-      // Find a good location for an arch (on surface) - use world coords then convert
-      const worldX = 200 + Math.random() * (MAP_WIDTH - 400);
+      // Find a good location for an arch (on surface) - within playable area
+      const worldX = PLAYABLE_OFFSET_X + 200 + Math.random() * (PLAYABLE_WIDTH - 400);
       const bx = Math.floor(worldX / TERRAIN_SCALE);
       const surfaceBY = this.findSurfaceBY(bx);
 
@@ -1257,8 +1270,9 @@ export class Terrain {
 
   // Get a safe spawn position for an ant (on solid ground, not inside caves)
   getSpawnPosition(index: number, totalAnts: number): { x: number; y: number } {
-    const spacing = MAP_WIDTH / (totalAnts + 1);
-    const x = spacing * (index + 1);
+    // Spawn within the playable area
+    const spacing = PLAYABLE_WIDTH / (totalAnts + 1);
+    const x = PLAYABLE_OFFSET_X + spacing * (index + 1);
 
     // Find a valid surface position
     let y = this.findSurfaceY(x);
@@ -1273,19 +1287,22 @@ export class Terrain {
     }
 
     // y is the surface Y in screen coords, we need the Y position where ant stands
-    return { x, y: y >= 0 ? y : MAP_HEIGHT - TERRAIN_MIN_HEIGHT };
+    const playableBottom = PLAYABLE_OFFSET_Y + PLAYABLE_HEIGHT;
+    return { x, y: y >= 0 ? y : playableBottom - TERRAIN_MIN_HEIGHT };
   }
 
   // Get spawn position for an ant within a team zone
   getTeamSpawnPosition(teamIndex: number, antIndexInTeam: number, antsPerTeam: number): { x: number; y: number } {
     const edgePadding = 100;
     const centerGap = 150;
+    const playableBottom = PLAYABLE_OFFSET_Y + PLAYABLE_HEIGHT;
 
-    const usableWidth = (MAP_WIDTH - 2 * edgePadding - centerGap) / 2;
+    // Calculate zones within the playable area
+    const usableWidth = (PLAYABLE_WIDTH - 2 * edgePadding - centerGap) / 2;
 
     const zoneStartX = teamIndex === 0
-      ? edgePadding
-      : MAP_WIDTH - edgePadding - usableWidth;
+      ? PLAYABLE_OFFSET_X + edgePadding
+      : PLAYABLE_OFFSET_X + PLAYABLE_WIDTH - edgePadding - usableWidth;
 
     // Find interesting spawn points with varied heights in this team's zone
     const candidates: { x: number; y: number; height: number }[] = [];
@@ -1293,11 +1310,11 @@ export class Terrain {
 
     for (let sx = zoneStartX; sx < zoneStartX + usableWidth; sx += sampleStep) {
       const surfaceY = this.findSurfaceY(sx);
-      if (surfaceY >= 0 && surfaceY < MAP_HEIGHT - 50) {
+      if (surfaceY >= 0 && surfaceY < playableBottom - 50) {
         // Check it's not inside a hole (has solid ground below)
         const hasGround = this.getPixel(sx, surfaceY + 10) > 0;
         if (hasGround) {
-          candidates.push({ x: sx, y: surfaceY, height: MAP_HEIGHT - surfaceY });
+          candidates.push({ x: sx, y: surfaceY, height: playableBottom - surfaceY });
         }
       }
     }
@@ -1307,7 +1324,7 @@ export class Terrain {
       const spacing = usableWidth / (antsPerTeam + 1);
       const x = zoneStartX + spacing * (antIndexInTeam + 1);
       const y = this.findSurfaceY(x);
-      return { x, y: y >= 0 ? y : MAP_HEIGHT - TERRAIN_MIN_HEIGHT };
+      return { x, y: y >= 0 ? y : playableBottom - TERRAIN_MIN_HEIGHT };
     }
 
     // Sort by height to get variety, then pick spread-out positions

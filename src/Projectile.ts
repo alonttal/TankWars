@@ -195,8 +195,9 @@ export class Projectile {
     this.x += this.vx * deltaTime;
     this.y += this.vy * deltaTime;
 
-    // Check if out of bounds
-    if (this.x < -50 || this.x > MAP_WIDTH + 50 || this.y > MAP_HEIGHT + 50) {
+    // Check if out of bounds (very lenient - allow projectiles to go off-screen)
+    // Only deactivate if WAY off screen (500px) or below the map
+    if (this.x < -500 || this.x > MAP_WIDTH + 500 || this.y > MAP_HEIGHT + 100) {
       this.active = false;
       this.trail = []; // Clear trail on deactivation
       return { active: false, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
