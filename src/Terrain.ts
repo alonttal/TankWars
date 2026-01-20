@@ -169,6 +169,11 @@ export class Terrain {
   // Floating platforms
   private floatingPlatforms: FloatingPlatform[];
 
+  // Cached terrain rendering for performance
+  private terrainCache: OffscreenCanvas | null;
+  private terrainCacheCtx: OffscreenCanvasRenderingContext2D | null;
+  private terrainDirty: boolean;
+
   constructor() {
     this.heightMap = new Array(MAP_WIDTH).fill(0);
     this.clouds = [];
@@ -181,6 +186,9 @@ export class Terrain {
     this.scorchMarks = [];
     this.theme = TERRAIN_THEMES[0];
     this.floatingPlatforms = [];
+    this.terrainCache = null;
+    this.terrainCacheCtx = null;
+    this.terrainDirty = true;
     this.generateClouds();
     this.generateAmbientDust();
   }
@@ -243,6 +251,11 @@ export class Terrain {
 
     // Generate floating platforms
     this.generateFloatingPlatforms();
+
+    // Initialize terrain cache
+    this.terrainCache = new OffscreenCanvas(MAP_WIDTH, MAP_HEIGHT);
+    this.terrainCacheCtx = this.terrainCache.getContext('2d');
+    this.terrainDirty = true;
   }
 
   private generateFloatingPlatforms(): void {
@@ -562,6 +575,9 @@ export class Terrain {
     // Add scorch mark at explosion location (smaller for digger)
     const scorchRadius = isDigger ? radius * 0.8 : radius * 1.5;
     this.addScorchMark(centerX, centerY, scorchRadius);
+
+    // Mark terrain cache as dirty so it gets re-rendered
+    this.terrainDirty = true;
   }
 
   // Add a scorch mark at the specified location
@@ -669,8 +685,25 @@ export class Terrain {
 
   // Render terrain/foreground layer (ground, grass, rocks) - fully affected by camera
   render(ctx: CanvasRenderingContext2D): void {
+    // Update cache if terrain has changed
+    if (this.terrainDirty && this.terrainCacheCtx) {
+      this.renderTerrainToCache();
+      this.terrainDirty = false;
+    }
 
-    // Draw terrain with multiple layers
+    // Draw cached terrain
+    if (this.terrainCache) {
+      ctx.drawImage(this.terrainCache, 0, 0);
+    }
+  }
+
+  // Render terrain to the offscreen cache
+  private renderTerrainToCache(): void {
+    const ctx = this.terrainCacheCtx;
+    if (!ctx) return;
+
+    // Clear the cache
+    ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
     // Layer 1: Deep rock/stone (darkest, at bottom)
     ctx.fillStyle = this.theme.deepRock;
@@ -744,7 +777,7 @@ export class Terrain {
     ctx.stroke();
   }
 
-  private renderFloatingPlatforms(ctx: CanvasRenderingContext2D): void {
+  private renderFloatingPlatforms(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D): void {
     for (const platform of this.floatingPlatforms) {
       const { x, y, width, topOffset, bottomOffset } = platform;
 
@@ -835,11 +868,11 @@ export class Terrain {
     }
   }
 
-  private renderScorchMarks(_ctx: CanvasRenderingContext2D): void {
+  private renderScorchMarks(_ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D): void {
     // Scorch marks disabled
   }
 
-  private drawRocks(ctx: CanvasRenderingContext2D): void {
+  private drawRocks(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D): void {
     // Use a seeded pattern for consistent rock placement (expanded for larger map)
     const rockPositions = [50, 150, 280, 400, 520, 650, 750, 900, 1050, 1150];
 
