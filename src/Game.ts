@@ -137,6 +137,11 @@ export class Game {
   private introPanPhase: number; // 0 = overview, 1 = pan to first player
   private introPanTimer: number;
 
+  // Mouse controls
+  private mouseX: number;
+  private mouseY: number;
+  private isMouseDown: boolean;
+
   // Turn timer
   private turnTimeRemaining: number;
   private maxTurnTime: number;
@@ -214,6 +219,9 @@ export class Game {
     this.targetCameraOffsetY = 0;
     this.introPanPhase = 0;
     this.introPanTimer = 0;
+    this.mouseX = 0;
+    this.mouseY = 0;
+    this.isMouseDown = false;
     this.maxTurnTime = 30; // 30 seconds per turn
     this.turnTimeRemaining = this.maxTurnTime;
     this.playerStats = [];
@@ -388,11 +396,62 @@ export class Game {
       }
     });
 
-    // Handle space release to fire
+    // Handle space release to fire (legacy keyboard support)
     window.addEventListener('keyup', (e) => {
       if (e.key === ' ' && this.isChargingPower && this.state === 'PLAYING' && !this.isAITurn()) {
         e.preventDefault();
         this.isChargingPower = false;
+        soundManager.stopCharging();
+        this.fire();
+      }
+    });
+
+    // Mouse controls for aiming and firing
+    this.canvas.addEventListener('mousemove', (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      this.mouseX = e.clientX - rect.left;
+      this.mouseY = e.clientY - rect.top;
+
+      // Update aim angle if playing and not AI turn
+      if (this.state === 'PLAYING' && !this.isAITurn()) {
+        this.updateAimFromMouse();
+      }
+    });
+
+    this.canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return; // Only left click
+
+      this.isMouseDown = true;
+
+      if (this.state === 'PLAYING' && !this.isAITurn()) {
+        // Start charging power from zero
+        if (!this.isChargingPower) {
+          this.isChargingPower = true;
+          this.powerDirection = 1;
+          this.powerSlider.value = '0';
+          this.powerSlider.dispatchEvent(new Event('input'));
+          soundManager.startCharging();
+        }
+      }
+    });
+
+    this.canvas.addEventListener('mouseup', (e) => {
+      if (e.button !== 0) return; // Only left click
+
+      this.isMouseDown = false;
+
+      if (this.isChargingPower && this.state === 'PLAYING' && !this.isAITurn()) {
+        this.isChargingPower = false;
+        soundManager.stopCharging();
+        this.fire();
+      }
+    });
+
+    // Handle mouse leaving canvas while charging
+    this.canvas.addEventListener('mouseleave', () => {
+      if (this.isMouseDown && this.isChargingPower && this.state === 'PLAYING' && !this.isAITurn()) {
+        this.isChargingPower = false;
+        this.isMouseDown = false;
         soundManager.stopCharging();
         this.fire();
       }
@@ -972,6 +1031,44 @@ export class Game {
     };
   }
 
+  // Convert screen coordinates to world coordinates
+  private screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    // Account for canvas scaling
+    const scaledX = screenX / SCALE_X;
+    const scaledY = screenY / SCALE_Y;
+
+    // Reverse camera transform:
+    // Screen = ((world + offset - center) * zoom) + center
+    // So: world = ((screen - center) / zoom) - offset + center
+    const worldX = (scaledX - BASE_WIDTH / 2) / this.cameraZoom - this.cameraOffsetX + BASE_WIDTH / 2;
+    const worldY = (scaledY - BASE_HEIGHT / 2) / this.cameraZoom - this.cameraOffsetY + BASE_HEIGHT / 2;
+
+    return { x: worldX, y: worldY };
+  }
+
+  // Update aim angle based on mouse position
+  private updateAimFromMouse(): void {
+    const tank = this.ants[this.currentPlayerIndex];
+    if (!tank || !tank.isAlive) return;
+
+    // Convert mouse screen position to world coordinates
+    const worldPos = this.screenToWorld(this.mouseX, this.mouseY);
+
+    // Calculate angle from tank to mouse position
+    const dx = worldPos.x - tank.x;
+    const dy = worldPos.y - (tank.y - 15); // Offset for barrel position
+
+    // Calculate angle in degrees (0 = right, 90 = up, 180 = left)
+    let angle = Math.atan2(-dy, dx) * (180 / Math.PI);
+
+    // Clamp angle to valid range (0-180, where 90 is straight up)
+    angle = Math.max(0, Math.min(180, angle));
+
+    // Update the angle slider
+    this.angleSlider.value = angle.toString();
+    this.angleSlider.dispatchEvent(new Event('input'));
+  }
+
   // Focus camera on a specific tank (used at start of turns)
   // If immediate is true, snap camera instantly (used at game start)
   private focusCameraOnAnt(ant: Ant, immediate: boolean = false): void {
@@ -1239,7 +1336,7 @@ export class Game {
     this.ctx.fillStyle = '#666';
     this.ctx.font = '12px "Courier New"';
     this.ctx.fillText('Arrow Keys to Select, Enter to Start', BASE_WIDTH / 2, 440);
-    this.ctx.fillText('In-game: Left/Right = Aim, Hold Space = Charge Power, Release = Fire', BASE_WIDTH / 2, 460);
+    this.ctx.fillText('In-game: Mouse = Aim, Hold Left Click = Charge, Release = Fire', BASE_WIDTH / 2, 460);
     this.ctx.globalAlpha = 1;
 
     // Draw decorative tanks with slight animation
