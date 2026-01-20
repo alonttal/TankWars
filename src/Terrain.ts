@@ -1,4 +1,99 @@
-import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT, TERRAIN_COLOR, SKY_COLOR } from './constants.ts';
+import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT } from './constants.ts';
+
+interface TerrainTheme {
+  name: string;
+  deepRock: string;
+  darkSoil: string;
+  mainSoil: string;
+  mainSoilDark: string;
+  topSoil: string;
+  skyTop: string;
+  skyMid: string;
+  skyBottom: string;
+  rockColor: string;
+  rockHighlight: string;
+}
+
+const TERRAIN_THEMES: TerrainTheme[] = [
+  {
+    name: 'Grassland',
+    deepRock: '#4A3728',
+    darkSoil: '#5C4033',
+    mainSoil: '#8B5A2B',
+    mainSoilDark: '#6B4423',
+    topSoil: '#4A7023',
+    skyTop: '#4A90D9',
+    skyMid: '#87CEEB',
+    skyBottom: '#B0E0FF',
+    rockColor: '#696969',
+    rockHighlight: '#8B8B8B',
+  },
+  {
+    name: 'Desert',
+    deepRock: '#8B7355',
+    darkSoil: '#C4A35A',
+    mainSoil: '#DEB887',
+    mainSoilDark: '#D2A95A',
+    topSoil: '#F4D59E',
+    skyTop: '#5DA3D9',
+    skyMid: '#A8D8FF',
+    skyBottom: '#FFE4B5',
+    rockColor: '#A0826D',
+    rockHighlight: '#C4A882',
+  },
+  {
+    name: 'Arctic',
+    deepRock: '#4A5568',
+    darkSoil: '#718096',
+    mainSoil: '#A0AEC0',
+    mainSoilDark: '#8899A6',
+    topSoil: '#E8EEF4',
+    skyTop: '#2B4B6F',
+    skyMid: '#6B8EAE',
+    skyBottom: '#C5D5E8',
+    rockColor: '#5A6978',
+    rockHighlight: '#8899A8',
+  },
+  {
+    name: 'Volcanic',
+    deepRock: '#1A1A1A',
+    darkSoil: '#2D2D2D',
+    mainSoil: '#3D3D3D',
+    mainSoilDark: '#2A2A2A',
+    topSoil: '#4A4A4A',
+    skyTop: '#4A2020',
+    skyMid: '#8B4513',
+    skyBottom: '#CD853F',
+    rockColor: '#2D2D2D',
+    rockHighlight: '#5A5A5A',
+  },
+  {
+    name: 'Autumn',
+    deepRock: '#4A3728',
+    darkSoil: '#6B4423',
+    mainSoil: '#8B6914',
+    mainSoilDark: '#6B5010',
+    topSoil: '#B8860B',
+    skyTop: '#4682B4',
+    skyMid: '#87CEEB',
+    skyBottom: '#FFE4C4',
+    rockColor: '#696969',
+    rockHighlight: '#8B8B8B',
+  },
+  {
+    name: 'Martian',
+    deepRock: '#5C2E00',
+    darkSoil: '#8B3A00',
+    mainSoil: '#CD5C00',
+    mainSoilDark: '#A04800',
+    topSoil: '#E07020',
+    skyTop: '#2B1810',
+    skyMid: '#4A2820',
+    skyBottom: '#8B5A50',
+    rockColor: '#6B3A2A',
+    rockHighlight: '#9B5A4A',
+  },
+];
 
 interface Cloud {
   x: number;
@@ -56,12 +151,12 @@ export class Terrain {
   private sunY: number;
   private sunPulse: number;
 
-  // Pre-rendered grass canvas
-  private grassCanvas: OffscreenCanvas | null;
-  private grassNeedsRedraw: boolean;
 
   // Scorch marks from explosions
   private scorchMarks: ScorchMark[];
+
+  // Current terrain theme
+  private theme: TerrainTheme;
 
   constructor() {
     this.heightMap = new Array(MAP_WIDTH).fill(0);
@@ -72,9 +167,8 @@ export class Terrain {
     this.sunX = BASE_WIDTH * 0.85;
     this.sunY = 60;
     this.sunPulse = 0;
-    this.grassCanvas = null;
-    this.grassNeedsRedraw = true;
     this.scorchMarks = [];
+    this.theme = TERRAIN_THEMES[0];
     this.generateClouds();
     this.generateAmbientDust();
   }
@@ -110,12 +204,14 @@ export class Terrain {
   }
 
   generate(): void {
+    // Pick a random terrain theme
+    this.theme = TERRAIN_THEMES[Math.floor(Math.random() * TERRAIN_THEMES.length)];
+
     // Regenerate clouds and dust for new terrain
     this.generateClouds();
     this.generateAmbientDust();
     this.sunX = BASE_WIDTH * (0.7 + Math.random() * 0.2);
     this.sunY = 40 + Math.random() * 40;
-    this.grassNeedsRedraw = true;
     this.scorchMarks = []; // Clear scorch marks for new terrain
 
     // Generate terrain using midpoint displacement algorithm
@@ -268,7 +364,6 @@ export class Terrain {
         this.heightMap[Math.floor(x)] = Math.max(TERRAIN_MIN_HEIGHT * 0.3, newTerrainHeight);
       }
     }
-    this.grassNeedsRedraw = true;
 
     // Add scorch mark at explosion location (smaller for digger)
     const scorchRadius = isDigger ? radius * 0.8 : radius * 1.5;
@@ -295,53 +390,13 @@ export class Terrain {
     }
   }
 
-  private preRenderGrass(): void {
-    this.grassCanvas = new OffscreenCanvas(MAP_WIDTH, MAP_HEIGHT);
-    const ctx = this.grassCanvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
-
-    const grassColor = '#4A7023';
-    const grassHighlight = '#6B8E23';
-
-    // Draw individual grass blades
-    for (let x = 0; x < MAP_WIDTH; x += 3) {
-      const baseY = MAP_HEIGHT - this.heightMap[x];
-
-      // Draw 2-3 grass blades per position
-      const bladeCount = 2 + Math.floor(Math.random() * 2);
-      for (let b = 0; b < bladeCount; b++) {
-        const bladeX = x + (Math.random() - 0.5) * 4;
-        const bladeHeight = 4 + Math.random() * 6;
-        const bladeLean = (Math.random() - 0.5) * 4;
-        const bladeColor = Math.random() > 0.3 ? grassColor : grassHighlight;
-
-        ctx.strokeStyle = bladeColor;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(bladeX, baseY);
-        ctx.quadraticCurveTo(
-          bladeX + bladeLean * 0.5,
-          baseY - bladeHeight * 0.6,
-          bladeX + bladeLean,
-          baseY - bladeHeight
-        );
-        ctx.stroke();
-      }
-    }
-
-    this.grassNeedsRedraw = false;
-  }
-
   // Render background layer (sky, sun, clouds) - affected by camera with parallax
   renderBackground(ctx: CanvasRenderingContext2D): void {
     // Draw sky gradient (covers entire map)
     const skyGradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT * 0.6);
-    skyGradient.addColorStop(0, '#4A90D9'); // Darker blue at top
-    skyGradient.addColorStop(0.5, SKY_COLOR); // Light blue
-    skyGradient.addColorStop(1, '#B0E0FF'); // Lighter at horizon
+    skyGradient.addColorStop(0, this.theme.skyTop);
+    skyGradient.addColorStop(0.5, this.theme.skyMid);
+    skyGradient.addColorStop(1, this.theme.skyBottom);
     ctx.fillStyle = skyGradient;
     ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
@@ -424,7 +479,7 @@ export class Terrain {
     // Draw terrain with multiple layers
 
     // Layer 1: Deep rock/stone (darkest, at bottom)
-    ctx.fillStyle = '#4A3728';
+    ctx.fillStyle = this.theme.deepRock;
     ctx.beginPath();
     ctx.moveTo(0, MAP_HEIGHT);
     for (let x = 0; x < MAP_WIDTH; x++) {
@@ -436,7 +491,7 @@ export class Terrain {
     ctx.fill();
 
     // Layer 2: Dark soil
-    ctx.fillStyle = '#5C4033';
+    ctx.fillStyle = this.theme.darkSoil;
     ctx.beginPath();
     ctx.moveTo(0, MAP_HEIGHT);
     for (let x = 0; x < MAP_WIDTH; x++) {
@@ -449,9 +504,9 @@ export class Terrain {
 
     // Layer 3: Main soil layer with gradient
     const soilGradient = ctx.createLinearGradient(0, MAP_HEIGHT * 0.3, 0, MAP_HEIGHT);
-    soilGradient.addColorStop(0, '#8B5A2B');
-    soilGradient.addColorStop(0.4, TERRAIN_COLOR);
-    soilGradient.addColorStop(1, '#6B4423');
+    soilGradient.addColorStop(0, this.theme.mainSoil);
+    soilGradient.addColorStop(0.4, this.theme.mainSoil);
+    soilGradient.addColorStop(1, this.theme.mainSoilDark);
     ctx.fillStyle = soilGradient;
     ctx.beginPath();
     ctx.moveTo(0, MAP_HEIGHT);
@@ -463,8 +518,8 @@ export class Terrain {
     ctx.closePath();
     ctx.fill();
 
-    // Layer 4: Top soil (lighter brown)
-    ctx.fillStyle = '#9B7653';
+    // Layer 4: Top soil
+    ctx.fillStyle = this.theme.topSoil;
     ctx.beginPath();
     ctx.moveTo(0, MAP_HEIGHT);
     for (let x = 0; x < MAP_WIDTH; x++) {
@@ -474,27 +529,6 @@ export class Terrain {
     ctx.lineTo(MAP_WIDTH, MAP_HEIGHT);
     ctx.closePath();
     ctx.fill();
-
-    // Draw grass edge on top
-    const grassColor = '#4A7023';
-    ctx.fillStyle = grassColor;
-    ctx.beginPath();
-    ctx.moveTo(0, MAP_HEIGHT);
-    for (let x = 0; x < MAP_WIDTH; x++) {
-      const y = MAP_HEIGHT - this.heightMap[x];
-      ctx.lineTo(x, y);
-    }
-    ctx.lineTo(MAP_WIDTH, MAP_HEIGHT);
-    ctx.closePath();
-    ctx.fill();
-
-    // Draw pre-rendered grass blades
-    if (this.grassNeedsRedraw) {
-      this.preRenderGrass();
-    }
-    if (this.grassCanvas) {
-      ctx.drawImage(this.grassCanvas, 0, 0);
-    }
 
     // Draw scorch marks from explosions
     this.renderScorchMarks(ctx);
@@ -539,9 +573,9 @@ export class Terrain {
         x - rockSize * 0.3, terrainY - rockSize * 0.3, 0,
         x, terrainY, rockSize
       );
-      rockGradient.addColorStop(0, '#8B8B8B');
-      rockGradient.addColorStop(0.5, '#696969');
-      rockGradient.addColorStop(1, '#4A4A4A');
+      rockGradient.addColorStop(0, this.theme.rockHighlight);
+      rockGradient.addColorStop(0.5, this.theme.rockColor);
+      rockGradient.addColorStop(1, this.theme.deepRock);
       ctx.fillStyle = rockGradient;
 
       // Draw irregular rock shape
