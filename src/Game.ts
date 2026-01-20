@@ -251,6 +251,10 @@ export class Game {
     this.weaponSelector = new WeaponSelector();
     this.buffIndicator = new BuffIndicator();
 
+    // Hide UI elements - only timer kept
+    this.weaponSelector.hide();
+    this.buffIndicator.hide();
+
     // Setup weapon selector callback
     this.weaponSelector.setOnWeaponSelect((weapon: WeaponType) => {
       if (this.state === 'PLAYING' && !this.isAITurn()) {
@@ -295,6 +299,10 @@ export class Game {
     this.currentPlayerSpan = document.getElementById('current-player') as HTMLSpanElement;
     this.windInfo = document.getElementById('wind-info') as HTMLSpanElement;
     this.musicButton = document.getElementById('music-btn') as HTMLButtonElement;
+
+    // Hide non-timer UI elements
+    this.currentPlayerSpan.style.display = 'none';
+    this.windInfo.style.display = 'none';
 
     this.setupEventListeners();
   }
@@ -682,13 +690,7 @@ export class Game {
           this.state = 'PLAYING';
           this.fireButton.disabled = false;
 
-          // Show UI elements
-          const firstAnt = this.ants[0];
-          this.weaponSelector.show();
-          this.buffIndicator.show();
-          this.weaponSelector.update(firstAnt);
-          this.buffIndicator.update(firstAnt);
-          this.weaponSelector.setEnabled(true);
+          // UI elements hidden - only timer kept
 
           // Show initial turn banner
           const turnText = this.getTurnBannerText();
@@ -1137,10 +1139,7 @@ export class Game {
       this.ants[i].render(this.ctx, isCurrentAndPlaying, this.isChargingPower);
     }
 
-    // Render power meter above tank when charging
-    if (this.isChargingPower) {
-      this.renderPowerMeter();
-    }
+    // Power meter removed - only timer UI kept
 
     // Render power-ups
     this.powerUpManager.render(this.ctx);
@@ -1160,40 +1159,7 @@ export class Game {
       explosion.render(this.ctx);
     }
 
-    // Render floating damage numbers with effects
-    for (const ft of this.floatingTexts) {
-      const alpha = Math.min(1, ft.life / (ft.maxLife * 0.5));
-      const lifeRatio = ft.life / ft.maxLife;
-
-      // Scale animation - pop in then shrink
-      let currentScale = ft.scale;
-      if (lifeRatio > 0.8) {
-        currentScale *= 1.0 + (1.0 - (lifeRatio - 0.8) / 0.2) * 0.3; // Pop effect
-      }
-
-      this.ctx.save();
-      this.ctx.globalAlpha = alpha;
-      this.ctx.translate(ft.x, ft.y);
-      this.ctx.scale(currentScale, currentScale);
-
-      // Critical hit shake effect
-      if (ft.isCritical && lifeRatio > 0.5) {
-        const shake = (Math.random() - 0.5) * 4;
-        this.ctx.translate(shake, shake);
-      }
-
-      this.ctx.fillStyle = ft.color;
-      this.ctx.font = 'bold 18px "Courier New"';
-      this.ctx.textAlign = 'center';
-
-      // Outline for better visibility
-      this.ctx.strokeStyle = '#000';
-      this.ctx.lineWidth = 3;
-      this.ctx.strokeText(ft.text, 0, 0);
-      this.ctx.fillText(ft.text, 0, 0);
-
-      this.ctx.restore();
-    }
+    // Floating damage numbers removed - only timer UI kept
 
     // Render screen flash overlay (in world space)
     if (this.screenFlashIntensity > 0) {
@@ -1208,36 +1174,14 @@ export class Game {
 
     // ===== LAYER 3: UI (no camera movement) =====
 
-    // Render intro pan overlay
-    if (this.state === 'INTRO_PAN') {
-      this.renderIntroPanOverlay();
-    }
-
-    // Render HUD elements (in screen space, no camera transform)
-    // Render wind indicator arrow (top right)
-    if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING' || this.state === 'INTRO_PAN') {
-      this.renderWindArrow();
-    }
-
-    // Render HUD health bars
-    if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING' || this.state === 'INTRO_PAN') {
-      this.renderHUDHealthBars();
-    }
-
-    // Render turn banner
-    if (this.turnBannerAlpha > 0) {
-      this.renderTurnBanner();
-    }
+    // Intro pan overlay, wind arrow, HUD health bars, turn banner removed - only timer UI kept
 
     // Render turn timer (during human turns)
     if ((this.state === 'PLAYING' || this.state === 'AI_THINKING') && !this.isAITurn()) {
       this.renderTurnTimer();
     }
 
-    // Render AI thinking indicator
-    if (this.state === 'AI_THINKING') {
-      this.renderAIThinking();
-    }
+    // AI thinking indicator removed - only timer UI kept
 
     // Render game over (UI overlay)
     if (this.state === 'GAME_OVER') {
