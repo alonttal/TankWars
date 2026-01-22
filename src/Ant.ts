@@ -839,6 +839,28 @@ export class Ant {
         const scopeY = shoulderY - Math.round(Math.sin(angleRad) * (weaponLen / 2));
         this.drawPixel(ctx, scopeX, scopeY - 2, '#333');
         this.drawPixel(ctx, scopeX, scopeY - 3, '#444');
+      } else if (this.selectedWeapon === 'sniper') {
+        // Sniper: long thin barrel with scope
+        for (let i = 0; i < weaponLen; i++) {
+          const px = shoulderX + Math.round(Math.cos(angleRad) * i);
+          const py = shoulderY - Math.round(Math.sin(angleRad) * i);
+          // Thin barrel
+          this.drawPixel(ctx, px, py, weaponVisual.color);
+          this.drawPixel(ctx, px, py - 1, weaponVisual.light);
+        }
+        // Muzzle
+        const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * weaponLen);
+        const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * weaponLen);
+        this.drawPixel(ctx, muzzleX, muzzleY, '#1a1a1a');
+        // Scope at 1/3 of barrel
+        const scopeX = shoulderX + Math.round(Math.cos(angleRad) * (weaponLen / 3));
+        const scopeY = shoulderY - Math.round(Math.sin(angleRad) * (weaponLen / 3));
+        this.drawPixel(ctx, scopeX, scopeY - 2, '#222');
+        this.drawPixel(ctx, scopeX, scopeY - 3, '#333');
+        this.drawPixel(ctx, scopeX + 1, scopeY - 2, '#222');
+        this.drawPixel(ctx, scopeX + 1, scopeY - 3, '#444');
+        // Stock
+        this.drawPixel(ctx, shoulderX - Math.round(Math.cos(angleRad) * 2), shoulderY + Math.round(Math.sin(angleRad) * 2), weaponVisual.dark);
       } else {
         // Standard: normal tube
         for (let i = 0; i < weaponLen; i++) {
@@ -1306,6 +1328,13 @@ export class Ant {
           light: '#7A7A7A',
           dark: '#3A3A3A',
           length: 8, // Shorter barrel
+        };
+      case 'sniper':
+        return {
+          color: '#2A2A3A', // Dark blue-grey
+          light: '#4A4A5A',
+          dark: '#1A1A2A',
+          length: 16, // Long barrel
         };
       default: // standard
         return {

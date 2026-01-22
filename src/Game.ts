@@ -285,11 +285,11 @@ export class Game {
 
     switch (e.key) {
       case 'ArrowLeft':
-        this.angleSlider.value = Math.min(180, parseInt(this.angleSlider.value) + 1).toString();
+        this.angleSlider.value = Math.min(225, parseInt(this.angleSlider.value) + 1).toString();
         this.angleSlider.dispatchEvent(new Event('input'));
         break;
       case 'ArrowRight':
-        this.angleSlider.value = Math.max(0, parseInt(this.angleSlider.value) - 1).toString();
+        this.angleSlider.value = Math.max(-45, parseInt(this.angleSlider.value) - 1).toString();
         this.angleSlider.dispatchEvent(new Event('input'));
         break;
       case ' ':
@@ -299,7 +299,7 @@ export class Game {
           const weaponConfig = tank.getSelectedWeaponConfig();
           // Shotgun fires instantly without charging
           if (!weaponConfig.requiresCharging) {
-            this.fireShotgun();
+            this.fireInstant();
             return;
           }
           if (!this.isChargingPower) {
@@ -317,7 +317,7 @@ export class Game {
           const weaponConfig = tank.getSelectedWeaponConfig();
           // Shotgun fires instantly without charging
           if (!weaponConfig.requiresCharging) {
-            this.fireShotgun();
+            this.fireInstant();
           } else {
             this.fire();
           }
@@ -332,6 +332,7 @@ export class Game {
       case '1':
       case '2':
       case '3':
+      case '4':
         this.selectWeaponByKey(e.key);
         break;
     }
@@ -388,7 +389,7 @@ export class Game {
 
       // Shotgun fires instantly without charging
       if (!weaponConfig.requiresCharging) {
-        this.fireShotgun();
+        this.fireInstant();
         return;
       }
 
@@ -568,7 +569,7 @@ export class Game {
     const dy = worldPos.y - (tank.y - 15);
 
     let angle = Math.atan2(-dy, dx) * (180 / Math.PI);
-    angle = Math.max(0, Math.min(180, angle));
+    angle = Math.max(-45, Math.min(225, angle));
 
     this.angleSlider.value = angle.toString();
     this.angleSlider.dispatchEvent(new Event('input'));
@@ -1189,7 +1190,7 @@ export class Game {
     }
   }
 
-  private fireShotgun(): void {
+  private fireInstant(): void {
     if (this.state !== 'PLAYING') return;
     if (this.isAITurn()) return;
 
@@ -1200,8 +1201,6 @@ export class Game {
     }
 
     const weaponConfig = tank.getSelectedWeaponConfig();
-    if (weaponConfig.type !== 'shotgun') return;
-
     const angle = parseInt(this.angleSlider.value);
     const fixedPower = MAX_POWER * 0.7; // 70% of max power
 
@@ -1211,16 +1210,29 @@ export class Game {
     const pelletCount = weaponConfig.pelletCount;
     const spreadAngle = weaponConfig.spreadAngle;
 
-    // Create multiple pellets with spread
-    for (let i = 0; i < pelletCount; i++) {
-      // Calculate spread offset for each pellet
-      const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
-      const pelletAngle = angle + spreadOffset;
+    // Create projectiles (single or multiple with spread)
+    if (pelletCount > 1) {
+      for (let i = 0; i < pelletCount; i++) {
+        const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
+        const pelletAngle = angle + spreadOffset;
 
+        const projectile = new Projectile(
+          barrelEnd.x,
+          barrelEnd.y,
+          pelletAngle,
+          fixedPower,
+          this.wind,
+          tank,
+          weaponConfig
+        );
+        this.projectiles.push(projectile);
+      }
+    } else {
+      // Single projectile
       const projectile = new Projectile(
         barrelEnd.x,
         barrelEnd.y,
-        pelletAngle,
+        angle,
         fixedPower,
         this.wind,
         tank,
