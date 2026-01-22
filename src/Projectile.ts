@@ -1,6 +1,5 @@
 import {
   GRAVITY,
-  PROJECTILE_RADIUS,
   MAP_WIDTH,
   MAP_HEIGHT,
 } from './constants.ts';
@@ -264,7 +263,6 @@ export class Projectile {
     if (!this.active && this.trail.length === 0 && this.trailParticles.length === 0 && this.impactParticles.length === 0) return;
 
     const color = this.weaponConfig.trailColor;
-    const sizeMultiplier = this.weaponConfig.projectileSize;
 
     // Draw impact particles first (behind everything)
     for (const particle of this.impactParticles) {
@@ -325,34 +323,157 @@ export class Projectile {
       ctx.fill();
     }
 
-    // Draw projectile with pulsing glow
+    // Draw projectile with weapon-specific pixel art
     if (this.active) {
-      const pulse = 0.7 + Math.sin(this.time * 20) * 0.3; // Pulsing between 0.7 and 1.0
-      const baseRadius = PROJECTILE_RADIUS * sizeMultiplier;
+      const angle = Math.atan2(this.vy, this.vx);
 
-      // Outer glow (pulsing)
-      const glowSize = baseRadius * 3 * pulse;
-      const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowSize);
-      gradient.addColorStop(0, `rgba(255, 255, 200, ${0.8 * pulse})`);
-      gradient.addColorStop(0.3, `rgba(${color.r}, ${color.g}, ${color.b}, ${0.5 * pulse})`);
-      gradient.addColorStop(0.6, `rgba(${color.r}, ${Math.floor(color.g * 0.5)}, 0, ${0.3 * pulse})`);
-      gradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, glowSize, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(angle);
 
-      // Core
-      ctx.fillStyle = '#FFF';
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, baseRadius, 0, Math.PI * 2);
-      ctx.fill();
+      // Draw weapon-specific projectile
+      switch (this.weaponConfig.type) {
+        case 'standard':
+          this.renderStandardShell(ctx);
+          break;
+        case 'bazooka':
+          this.renderBazookaRocket(ctx);
+          break;
+        case 'shotgun':
+          this.renderClusterPellet(ctx);
+          break;
+        case 'sniper':
+          this.renderSniperBullet(ctx);
+          break;
+        default:
+          this.renderStandardShell(ctx);
+      }
 
-      // Inner bright glow
-      ctx.fillStyle = 'rgba(255, 255, 200, 0.8)';
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, baseRadius * 1.5, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.restore();
     }
+  }
+
+  // Pixel art: Standard shell - classic cannonball
+  private renderStandardShell(ctx: CanvasRenderingContext2D): void {
+    const pixelSize = 2;
+    // Shell shape (pointing right): 6x4 pixels, no outline
+    const sprite = [
+      [0, 1, 1, 2, 0, 0],
+      [1, 1, 2, 2, 2, 0],
+      [1, 1, 2, 2, 2, 0],
+      [0, 1, 1, 2, 0, 0],
+    ];
+    const colors: Record<number, string> = {
+      0: '', // Transparent
+      1: '#8B5A2B', // Brown
+      2: '#CD853F', // Light brown/orange highlight
+    };
+
+    this.drawPixelSprite(ctx, sprite, colors, pixelSize, -6, -4);
+    this.drawProjectileGlow(ctx, '#FF9944', 12);
+  }
+
+  // Pixel art: Bazooka rocket - missile with fins
+  private renderBazookaRocket(ctx: CanvasRenderingContext2D): void {
+    const pixelSize = 2;
+    // Rocket shape (pointing right): 12x6 pixels, no outline
+    const sprite = [
+      [0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0],
+      [0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 0, 0],
+      [4, 4, 1, 1, 1, 1, 2, 2, 3, 3, 3, 0],
+      [4, 4, 1, 1, 1, 1, 2, 2, 3, 3, 3, 0],
+      [0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0],
+    ];
+    const colors: Record<number, string> = {
+      0: '', // Transparent
+      1: '#5A5A5A', // Dark grey body
+      2: '#7A7A7A', // Light grey body
+      3: '#DD4444', // Red tip
+      4: '#FF6600', // Orange exhaust
+    };
+
+    this.drawPixelSprite(ctx, sprite, colors, pixelSize, -12, -6);
+    this.drawProjectileGlow(ctx, '#FF4400', 16);
+  }
+
+  // Pixel art: Cluster bomb pellet - small round pellet
+  private renderClusterPellet(ctx: CanvasRenderingContext2D): void {
+    const pixelSize = 2;
+    // Small pellet shape: 4x4 pixels, no outline
+    const sprite = [
+      [0, 1, 1, 0],
+      [1, 1, 2, 2],
+      [1, 1, 2, 2],
+      [0, 1, 1, 0],
+    ];
+    const colors: Record<number, string> = {
+      0: '', // Transparent
+      1: '#DAA520', // Gold
+      2: '#FFD700', // Bright gold highlight
+    };
+
+    this.drawPixelSprite(ctx, sprite, colors, pixelSize, -4, -4);
+    this.drawProjectileGlow(ctx, '#FFDD44', 8);
+  }
+
+  // Pixel art: Sniper bullet - slim elongated bullet
+  private renderSniperBullet(ctx: CanvasRenderingContext2D): void {
+    const pixelSize = 1.5;
+    // Small bullet shape (pointing right): 6x2 pixels, no outline
+    const sprite = [
+      [1, 1, 2, 2, 3, 3],
+      [1, 1, 2, 2, 3, 3],
+    ];
+    const colors: Record<number, string> = {
+      0: '', // Transparent
+      1: '#B87333', // Copper/brass
+      2: '#CD7F32', // Light brass
+      3: '#CC3333', // Red tip
+    };
+
+    this.drawPixelSprite(ctx, sprite, colors, pixelSize, -5, -1.5);
+    this.drawProjectileGlow(ctx, '#FF6666', 6);
+  }
+
+  // Helper: Draw a pixel sprite from a 2D array
+  private drawPixelSprite(
+    ctx: CanvasRenderingContext2D,
+    sprite: number[][],
+    colors: Record<number, string>,
+    pixelSize: number,
+    offsetX: number,
+    offsetY: number
+  ): void {
+    for (let y = 0; y < sprite.length; y++) {
+      for (let x = 0; x < sprite[y].length; x++) {
+        const colorIndex = sprite[y][x];
+        if (colorIndex !== 0 && colors[colorIndex]) {
+          ctx.fillStyle = colors[colorIndex];
+          ctx.fillRect(
+            offsetX + x * pixelSize,
+            offsetY + y * pixelSize,
+            pixelSize,
+            pixelSize
+          );
+        }
+      }
+    }
+  }
+
+  // Helper: Draw a subtle glow behind the projectile
+  private drawProjectileGlow(ctx: CanvasRenderingContext2D, color: string, size: number): void {
+    const pulse = 0.7 + Math.sin(this.time * 15) * 0.3;
+    const glowSize = size * pulse;
+
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, glowSize);
+    gradient.addColorStop(0, `${color}66`);
+    gradient.addColorStop(0.5, `${color}33`);
+    gradient.addColorStop(1, `${color}00`);
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowSize, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
