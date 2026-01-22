@@ -657,6 +657,12 @@ export class Game {
 
     // AI thinking
     if (this.state === 'AI_THINKING') {
+      // Continue applying physics so AI lands if still in the air from movement
+      const aiAnt = this.ants[this.currentPlayerIndex];
+      if (aiAnt && aiAnt.isAlive) {
+        aiAnt.updateMovement(effectiveDelta, this.terrain);
+      }
+
       this.aiThinkingTimer -= deltaTime * 1000;
       if (this.aiThinkingTimer <= 0 && this.aiShot) {
         this.executeAIShot();
@@ -727,6 +733,12 @@ export class Game {
   }
 
   private updateFiring(effectiveDelta: number): void {
+    // Continue applying physics so the shooter lands if still in the air
+    const currentAnt = this.ants[this.currentPlayerIndex];
+    if (currentAnt && currentAnt.isAlive) {
+      currentAnt.updateMovement(effectiveDelta, this.terrain);
+    }
+
     const newProjectiles: Projectile[] = [];
     let anyActiveProjectile = false;
     let cameraFollowProjectile: Projectile | null = null;
