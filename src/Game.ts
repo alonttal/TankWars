@@ -332,6 +332,17 @@ export class Game {
       case '4':
         this.selectWeaponByKey(e.key);
         break;
+      case 'k':
+      case 'K':
+        // Debug: Kill current ant to test death animations
+        {
+          const ant = this.ants[this.currentPlayerIndex];
+          if (ant && ant.isAlive) {
+            ant.takeDamage(999);
+            this.endTurn();
+          }
+        }
+        break;
     }
   }
 
