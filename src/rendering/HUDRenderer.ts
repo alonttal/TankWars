@@ -1,4 +1,4 @@
-import { BASE_WIDTH, NUM_TEAMS, ANTS_PER_TEAM, TEAM_COLORS, WIND_STRENGTH_MAX } from '../constants.ts';
+import { BASE_WIDTH, NUM_TEAMS, ANTS_PER_TEAM, TEAM_COLORS, WIND_STRENGTH_MAX, MAX_MOVEMENT_ENERGY } from '../constants.ts';
 import { GameMode, HUDHealthAnimation } from '../types/GameTypes.ts';
 import { Ant } from '../Ant.ts';
 import { CameraSystem } from '../systems/CameraSystem.ts';
@@ -414,6 +414,56 @@ export class HUDRenderer {
     ctx.fillStyle = '#aaa';
     ctx.font = '10px "Courier New"';
     ctx.fillText('POWER', meterX, meterY + 18);
+
+    ctx.restore();
+  }
+
+  renderMovementEnergy(
+    ctx: CanvasRenderingContext2D,
+    tank: Ant,
+    isCurrentPlayer: boolean
+  ): void {
+    if (!isCurrentPlayer || !tank || !tank.isAlive) return;
+    if (tank.movementBarAlpha <= 0) return; // Don't render if fully faded
+
+    const barWidth = 50;
+    const barHeight = 6;
+    const barX = tank.x - barWidth / 2;
+    const barY = tank.y + 8; // Below the ant
+
+    const energyRatio = tank.movementEnergy / MAX_MOVEMENT_ENERGY;
+    const alpha = tank.movementBarAlpha;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
+
+    // Energy fill
+    let energyColor: string;
+    if (energyRatio > 0.5) {
+      energyColor = '#4EA8DE'; // Blue
+    } else if (energyRatio > 0.25) {
+      energyColor = '#FFD93D'; // Yellow
+    } else {
+      energyColor = '#FF6B6B'; // Red
+    }
+
+    ctx.fillStyle = energyColor;
+    ctx.fillRect(barX, barY, barWidth * energyRatio, barHeight);
+
+    // Border
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+    // Label
+    ctx.fillStyle = '#fff';
+    ctx.font = '8px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillText('MOVE', tank.x, barY + barHeight + 8);
 
     ctx.restore();
   }

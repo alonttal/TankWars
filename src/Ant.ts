@@ -1,7 +1,15 @@
 import {
   TANK_WIDTH,
   TANK_HEIGHT,
-  MAP_HEIGHT
+  MAP_HEIGHT,
+  MAP_WIDTH,
+  GRAVITY,
+  MOVEMENT_SPEED,
+  JUMP_FORCE,
+  MAX_MOVEMENT_ENERGY,
+  MOVEMENT_ENERGY_COST,
+  JUMP_ENERGY_COST,
+  MAX_SLOPE_ANGLE
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
 import { WeaponType, getDefaultAmmo, WEAPON_CONFIGS } from './weapons/WeaponTypes.ts';
@@ -145,6 +153,15 @@ export class Ant {
   private deathPopY: number;
   private deathPopVy: number;
 
+  // Movement state
+  movementEnergy: number;
+  private velocityX: number;
+  private velocityY: number;
+  isGrounded: boolean;
+  private isWalking: boolean;
+  private walkDirection: number; // -1 = left, 0 = none, 1 = right
+  movementBarAlpha: number; // For fading the movement bar
+
   constructor(x: number, y: number, color: string, playerIndex: number, facingRight: boolean, teamIndex: number = 0, teamAntIndex: number = 0) {
     this.x = x;
     this.y = y;
@@ -187,6 +204,15 @@ export class Ant {
     this.deathAnimationTimer = 0;
     this.deathPopY = 0;
     this.deathPopVy = 0;
+
+    // Movement initialization
+    this.movementEnergy = MAX_MOVEMENT_ENERGY;
+    this.velocityX = 0;
+    this.velocityY = 0;
+    this.isGrounded = true;
+    this.isWalking = false;
+    this.walkDirection = 0;
+    this.movementBarAlpha = 0;
   }
 
   updatePosition(terrain: Terrain): void {
@@ -205,6 +231,149 @@ export class Ant {
     if (checkY < this.y) {
       this.y = checkY;
     }
+  }
+
+  // Movement methods
+  startWalking(direction: number): void {
+    if (!this.isAlive || this.movementEnergy <= 0) return;
+    this.walkDirection = direction;
+    this.isWalking = true;
+    // Update facing direction
+    if (direction > 0) this.facingRight = true;
+    if (direction < 0) this.facingRight = false;
+  }
+
+  stopWalking(): void {
+    this.walkDirection = 0;
+    this.isWalking = false;
+    this.velocityX = 0;
+  }
+
+  jump(): void {
+    if (!this.isAlive || !this.isGrounded || this.movementEnergy < JUMP_ENERGY_COST) return;
+    this.velocityY = -JUMP_FORCE;
+    this.isGrounded = false;
+    this.movementEnergy -= JUMP_ENERGY_COST;
+  }
+
+  canMove(): boolean {
+    return this.isAlive && this.movementEnergy > 0;
+  }
+
+  resetMovementEnergy(): void {
+    this.movementEnergy = MAX_MOVEMENT_ENERGY;
+    this.velocityX = 0;
+    this.velocityY = 0;
+    this.isGrounded = true;
+    this.isWalking = false;
+    this.walkDirection = 0;
+  }
+
+  updateMovement(deltaTime: number, terrain: Terrain): void {
+    if (!this.isAlive) return;
+
+    // Update movement bar alpha (fade in when moving, fade out when stopped)
+    const isMoving = this.isWalking || !this.isGrounded;
+    if (isMoving) {
+      this.movementBarAlpha = Math.min(1, this.movementBarAlpha + deltaTime * 5);
+    } else {
+      this.movementBarAlpha = Math.max(0, this.movementBarAlpha - deltaTime * 3);
+    }
+
+    // Apply walking velocity if grounded and has energy
+    if (this.isWalking && this.isGrounded && this.movementEnergy > 0) {
+      // Check slope at current position
+      const slopeAngle = this.getTerrainSlopeAngle(terrain);
+
+      // Can't climb if slope is too steep
+      if (Math.abs(slopeAngle) <= MAX_SLOPE_ANGLE ||
+          (this.walkDirection > 0 && slopeAngle < 0) || // Going downhill right
+          (this.walkDirection < 0 && slopeAngle > 0)) { // Going downhill left
+        this.velocityX = this.walkDirection * MOVEMENT_SPEED;
+        this.movementEnergy -= MOVEMENT_ENERGY_COST * deltaTime;
+        if (this.movementEnergy < 0) this.movementEnergy = 0;
+      } else {
+        this.velocityX = 0; // Can't climb, stop
+      }
+    } else if (!this.isGrounded && this.isWalking && this.movementEnergy > 0) {
+      // Air control - allow movement in air when pressing arrow keys
+      this.velocityX = this.walkDirection * MOVEMENT_SPEED * 0.7; // Slightly less control in air
+      this.movementEnergy -= MOVEMENT_ENERGY_COST * deltaTime * 0.5; // Less energy cost in air
+      if (this.movementEnergy < 0) this.movementEnergy = 0;
+    } else if (this.isGrounded) {
+      this.velocityX = 0;
+    }
+
+    // Apply gravity when in air
+    if (!this.isGrounded) {
+      this.velocityY += GRAVITY * deltaTime;
+    }
+
+    // Update position
+    const newX = this.x + this.velocityX * deltaTime;
+    const newY = this.y + this.velocityY * deltaTime;
+
+    // Horizontal collision check
+    if (this.velocityX !== 0) {
+      // Check if new X position is valid (not inside terrain at head/body height)
+      const checkHeights = [this.y - 5, this.y - 15, this.y - 25];
+      let canMoveX = true;
+      for (const checkY of checkHeights) {
+        if (terrain.isPointInTerrain(newX, checkY)) {
+          canMoveX = false;
+          break;
+        }
+      }
+      if (canMoveX && newX > 50 && newX < MAP_WIDTH - 50) {
+        this.x = newX;
+      } else {
+        this.velocityX = 0;
+      }
+    }
+
+    // Vertical collision check
+    if (this.velocityY > 0) {
+      // Falling - check for ground
+      const groundHeight = terrain.getHeightAt(this.x);
+      const groundY = MAP_HEIGHT - groundHeight;
+      if (newY >= groundY) {
+        this.y = groundY;
+        this.velocityY = 0;
+        this.isGrounded = true;
+      } else {
+        this.y = newY;
+        this.isGrounded = false;
+      }
+    } else if (this.velocityY < 0) {
+      // Rising - check for ceiling
+      if (terrain.isPointInTerrain(this.x, newY - 30)) {
+        this.velocityY = 0; // Hit ceiling, stop rising
+      } else {
+        this.y = newY;
+      }
+      this.isGrounded = false;
+    } else if (this.isGrounded) {
+      // On ground - stick to terrain surface
+      const groundHeight = terrain.getHeightAt(this.x);
+      const groundY = MAP_HEIGHT - groundHeight;
+
+      // Check if we've walked off an edge
+      if (groundY > this.y + 5) {
+        this.isGrounded = false;
+      } else {
+        this.y = groundY;
+      }
+    }
+  }
+
+  private getTerrainSlopeAngle(terrain: Terrain): number {
+    // Sample terrain height at two points to calculate slope
+    const sampleDist = 10;
+    const heightLeft = terrain.getHeightAt(this.x - sampleDist);
+    const heightRight = terrain.getHeightAt(this.x + sampleDist);
+    const heightDiff = heightRight - heightLeft; // Positive = uphill to right
+    const slopeAngle = Math.atan2(heightDiff, sampleDist * 2) * (180 / Math.PI);
+    return slopeAngle;
   }
 
   takeDamage(amount: number): void {
@@ -779,7 +948,10 @@ export class Ant {
 
     // Animation offset
     const breatheOffset = Math.floor(Math.sin(this.idleTime * 2) * 0.5);
-    const legAnim = Math.floor(Math.sin(this.idleTime * 4) * 1);
+    // Faster and more pronounced leg animation when walking
+    const legSpeed = this.isWalking ? 16 : 4;
+    const legAmplitude = this.isWalking ? 2 : 1;
+    const legAnim = Math.floor(Math.sin(this.idleTime * legSpeed) * legAmplitude);
 
     // Weapon angle
     const angleRad = (this.angle * Math.PI) / 180;

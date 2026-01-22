@@ -77,6 +77,9 @@ export class Game {
   private weaponMenuOpen: boolean;
   private weaponMenuPosition: { x: number; y: number };
 
+  // Movement input
+  private movementKeys: { left: boolean; right: boolean };
+
   // Turn timer
   private turnTimeRemaining: number;
   private maxTurnTime: number;
@@ -132,6 +135,7 @@ export class Game {
     this.isMouseDown = false;
     this.weaponMenuOpen = false;
     this.weaponMenuPosition = { x: 0, y: 0 };
+    this.movementKeys = { left: false, right: false };
     this.maxTurnTime = 30;
     this.turnTimeRemaining = this.maxTurnTime;
     this.playerStats = [];
@@ -285,42 +289,31 @@ export class Game {
 
     switch (e.key) {
       case 'ArrowLeft':
-        this.angleSlider.value = Math.min(225, parseInt(this.angleSlider.value) + 1).toString();
-        this.angleSlider.dispatchEvent(new Event('input'));
+        e.preventDefault();
+        this.movementKeys.left = true;
+        {
+          const tank = this.ants[this.currentPlayerIndex];
+          if (tank && tank.canMove()) {
+            tank.startWalking(-1);
+          }
+        }
         break;
       case 'ArrowRight':
-        this.angleSlider.value = Math.max(-45, parseInt(this.angleSlider.value) - 1).toString();
-        this.angleSlider.dispatchEvent(new Event('input'));
+        e.preventDefault();
+        this.movementKeys.right = true;
+        {
+          const tank = this.ants[this.currentPlayerIndex];
+          if (tank && tank.canMove()) {
+            tank.startWalking(1);
+          }
+        }
         break;
       case ' ':
         e.preventDefault();
         {
           const tank = this.ants[this.currentPlayerIndex];
-          const weaponConfig = tank.getSelectedWeaponConfig();
-          // Shotgun fires instantly without charging
-          if (!weaponConfig.requiresCharging) {
-            this.fireInstant();
-            return;
-          }
-          if (!this.isChargingPower) {
-            this.isChargingPower = true;
-            this.powerSlider.value = '0';
-            this.powerSlider.dispatchEvent(new Event('input'));
-            soundManager.startCharging();
-          }
-        }
-        break;
-      case 'Enter':
-        e.preventDefault();
-        {
-          const tank = this.ants[this.currentPlayerIndex];
-          const weaponConfig = tank.getSelectedWeaponConfig();
-          // Shotgun fires instantly without charging
-          if (!weaponConfig.requiresCharging) {
-            this.fireInstant();
-          } else {
-            this.fire();
-          }
+          // Space is for jumping
+          tank.jump();
         }
         break;
       case 'm':
@@ -339,11 +332,29 @@ export class Game {
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
-    if (e.key === ' ' && this.isChargingPower && this.state === 'PLAYING' && !this.isAITurn()) {
-      e.preventDefault();
-      this.isChargingPower = false;
-      soundManager.stopCharging();
-      this.fire();
+    if (this.state !== 'PLAYING' || this.isAITurn()) return;
+
+    const tank = this.ants[this.currentPlayerIndex];
+
+    switch (e.key) {
+      case 'ArrowLeft':
+        this.movementKeys.left = false;
+        if (!this.movementKeys.right) {
+          tank?.stopWalking();
+        } else {
+          // Still holding right, walk right
+          tank?.startWalking(1);
+        }
+        break;
+      case 'ArrowRight':
+        this.movementKeys.right = false;
+        if (!this.movementKeys.left) {
+          tank?.stopWalking();
+        } else {
+          // Still holding left, walk left
+          tank?.startWalking(-1);
+        }
+        break;
     }
   }
 
@@ -621,6 +632,12 @@ export class Game {
         this.powerSlider.value = Math.floor(20 + Math.random() * 60).toString();
         this.powerSlider.dispatchEvent(new Event('input'));
         this.fire();
+      }
+
+      // Update movement for current ant
+      const currentAnt = this.ants[this.currentPlayerIndex];
+      if (currentAnt && currentAnt.isAlive) {
+        currentAnt.updateMovement(effectiveDelta, this.terrain);
       }
     }
 
@@ -917,6 +934,11 @@ export class Game {
         ? parseInt(this.powerSlider.value)
         : 0;
       this.ants[i].render(this.ctx, isCurrentAndPlaying, chargingPower);
+
+      // Render movement energy bar for current player
+      if (isCurrentAndPlaying && this.state === 'PLAYING' && !this.isAITurn()) {
+        this.hudRenderer.renderMovementEnergy(this.ctx, this.ants[i], true);
+      }
     }
 
     this.powerUpManager.render(this.ctx);
@@ -1036,6 +1058,8 @@ export class Game {
     this.updateWindDisplay();
 
     const firstAnt = this.ants[0];
+    firstAnt.resetMovementEnergy();
+    this.movementKeys = { left: false, right: false };
     this.angleSlider.value = firstAnt.angle.toString();
     this.angleValue.textContent = firstAnt.angle.toString();
 
@@ -1520,6 +1544,10 @@ export class Game {
     this.teamTurnCounts[this.currentTeamIndex]++;
 
     this.turnTimeRemaining = this.maxTurnTime;
+
+    // Reset movement for new turn
+    nextAnt.resetMovementEnergy();
+    this.movementKeys = { left: false, right: false };
 
     this.angleSlider.value = nextAnt.angle.toString();
     this.angleValue.textContent = nextAnt.angle.toString();

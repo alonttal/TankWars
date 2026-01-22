@@ -48,6 +48,14 @@ export const GRAVITY = 150; // pixels per second squared
 export const MAX_POWER = 400; // max initial velocity
 export const WIND_STRENGTH_MAX = 30; // max wind effect
 
+// Movement
+export const MOVEMENT_SPEED = 50; // pixels per second
+export const JUMP_FORCE = 180; // initial upward velocity
+export const MAX_MOVEMENT_ENERGY = 100; // energy units per turn
+export const MOVEMENT_ENERGY_COST = 25; // energy cost per second of walking
+export const JUMP_ENERGY_COST = 20; // energy cost per jump
+export const MAX_SLOPE_ANGLE = 50; // max climbable slope in degrees
+
 // Ant properties (in base coordinates) - keeping TANK_ prefix for now until visual redesign
 export const TANK_WIDTH = 40;
 export const TANK_HEIGHT = 20;
