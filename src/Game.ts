@@ -91,6 +91,10 @@ export class Game {
 
   private lastTime: number;
 
+  // Hit delay (camera stays on hit location before returning to shooter)
+  private hitDelayTimer: number;
+  private lastHitPosition: { x: number; y: number } | null;
+
   // Weapon and Power-up systems
   private projectiles: Projectile[];
   private burnAreas: BurnArea[];
@@ -144,6 +148,8 @@ export class Game {
     this.turnTimeRemaining = this.maxTurnTime;
     this.playerStats = [];
     this.lastTime = 0;
+    this.hitDelayTimer = 0;
+    this.lastHitPosition = null;
 
     // Initialize extracted systems
     this.camera = new CameraSystem();
@@ -780,17 +786,28 @@ export class Game {
     if (cameraFollowProjectile) {
       this.camera.focusOnProjectile(cameraFollowProjectile.x, cameraFollowProjectile.y);
     } else if (!anyActiveProjectile) {
-      const currentAnt = this.ants[this.currentPlayerIndex];
-      if (currentAnt && currentAnt.isAlive) {
-        const clamped = this.camera.clampOffset(
-          BASE_WIDTH / 2 - currentAnt.x,
-          BASE_HEIGHT / 2 - currentAnt.y,
-          0.5 // Target zoom after resetZoom
-        );
-        this.camera.targetOffsetX = clamped.x;
-        this.camera.targetOffsetY = clamped.y;
+      // Delay camera return to shooter after a hit
+      if (this.hitDelayTimer > 0) {
+        this.hitDelayTimer -= effectiveDelta;
+        // Keep camera focused on last hit position during delay
+        if (this.lastHitPosition) {
+          this.camera.focusOnProjectile(this.lastHitPosition.x, this.lastHitPosition.y);
+        }
+      } else {
+        // Delay finished, move camera back to shooter
+        this.lastHitPosition = null;
+        const currentAnt = this.ants[this.currentPlayerIndex];
+        if (currentAnt && currentAnt.isAlive) {
+          const clamped = this.camera.clampOffset(
+            BASE_WIDTH / 2 - currentAnt.x,
+            BASE_HEIGHT / 2 - currentAnt.y,
+            0.5 // Target zoom after resetZoom
+          );
+          this.camera.targetOffsetX = clamped.x;
+          this.camera.targetOffsetY = clamped.y;
+        }
+        this.camera.resetZoom();
       }
-      this.camera.resetZoom();
     }
 
     // Update burn areas
@@ -812,9 +829,9 @@ export class Game {
     this.effects.updateConfetti(effectiveDelta);
     this.effects.updateFireworks(effectiveDelta);
 
-    // Check if firing phase is complete
+    // Check if firing phase is complete (including hit delay)
     const hasActiveProjectiles = this.projectiles.some(p => p.active);
-    if (!hasActiveProjectiles && this.explosions.length === 0 && this.burnAreas.length === 0) {
+    if (!hasActiveProjectiles && this.explosions.length === 0 && this.burnAreas.length === 0 && this.hitDelayTimer <= 0) {
       this.endTurn();
     }
   }
@@ -860,6 +877,10 @@ export class Game {
 
     const damageMultiplier = projectile.owner.getDamageMultiplier();
     const finalDamage = Math.floor(weaponConfig.damage * damageMultiplier);
+
+    // Track hit position for camera delay
+    this.lastHitPosition = { x: hitX, y: hitY };
+    this.hitDelayTimer = 2.0; // 2 second delay on hit location
 
     const explosion = new Explosion(hitX, hitY, weaponConfig.explosionRadius, finalDamage);
     explosion.applyDamageWithConfig(
@@ -1047,6 +1068,10 @@ export class Game {
 
     // Clear effects
     this.effects.clear();
+
+    // Reset hit delay state
+    this.hitDelayTimer = 0;
+    this.lastHitPosition = null;
 
     // Clear power-ups
     this.powerUpManager.clear();
