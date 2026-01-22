@@ -3,7 +3,7 @@ import { Terrain } from './Terrain.ts';
 import { Ant } from './Ant.ts';
 import { Projectile } from './Projectile.ts';
 import { Explosion } from './Explosion.ts';
-import { AntAI, AIDifficulty } from './AI.ts';
+import { AntAI, AIDifficulty, AIMovementPlan } from './AI.ts';
 import { soundManager } from './Sound.ts';
 import { WeaponType, WEAPON_CONFIGS, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
 import { BurnArea } from './weapons/BurnArea.ts';
@@ -37,6 +37,8 @@ export class Game {
   private ai: AntAI | null;
   private aiThinkingTimer: number;
   private aiShot: { angle: number; power: number; target: Ant | null } | null;
+  private aiMovementPlan: AIMovementPlan | null;
+  private aiTarget: Ant | null;
 
   // Menu
   private menuItems: MenuItem[];
@@ -127,6 +129,8 @@ export class Game {
     this.ai = null;
     this.aiThinkingTimer = 0;
     this.aiShot = null;
+    this.aiMovementPlan = null;
+    this.aiTarget = null;
     this.isChargingPower = false;
     this.introPanPhase = 0;
     this.introPanTimer = 0;
@@ -254,7 +258,7 @@ export class Game {
         this.state = 'PAUSED';
       } else if (this.state === 'PAUSED') {
         this.resumeGame();
-      } else if (this.state === 'PLAYING' || this.state === 'AI_THINKING') {
+      } else if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'AI_MOVING') {
         this.pauseGame();
       }
       return;
@@ -659,6 +663,11 @@ export class Game {
       }
     }
 
+    // AI movement
+    if (this.state === 'AI_MOVING') {
+      this.updateAIMovement(effectiveDelta);
+    }
+
     // Firing state
     if (this.state === 'FIRING') {
       this.updateFiring(effectiveDelta);
@@ -1025,6 +1034,8 @@ export class Game {
     } else {
       this.ai = null;
     }
+    this.aiMovementPlan = null;
+    this.aiTarget = null;
 
     // Generate terrain
     this.terrain.generate();
@@ -1420,6 +1431,34 @@ export class Game {
     const target = this.ai.selectTarget(aiAnt, enemyAnts);
     if (!target) return;
 
+    this.aiTarget = target;
+    this.fireButton.disabled = true;
+
+    // Check if AI should consider moving to a better position
+    const shouldMove = this.ai.shouldConsiderMoving();
+    console.log('[AI] shouldConsiderMoving:', shouldMove);
+    if (shouldMove) {
+      const movementPlan = this.ai.planMovement(aiAnt, target, this.terrain, this.wind);
+      console.log('[AI] movementPlan:', movementPlan);
+      if (movementPlan) {
+        // AI decided to move - start movement
+        console.log('[AI] Starting movement to', movementPlan.targetX, 'from', aiAnt.x);
+        this.aiMovementPlan = movementPlan;
+        const direction = movementPlan.targetX > aiAnt.x ? 1 : -1;
+        aiAnt.startWalking(direction);
+        this.state = 'AI_MOVING';
+        this.camera.focusOnAnt(aiAnt);
+        return;
+      }
+    }
+
+    // No movement - proceed directly to aiming and shooting
+    this.prepareAIShot(aiAnt, target);
+  }
+
+  private prepareAIShot(aiAnt: Ant, target: Ant): void {
+    if (!this.ai) return;
+
     this.ai.selectWeapon(aiAnt, target);
     this.weaponSelector.update(aiAnt);
 
@@ -1436,6 +1475,58 @@ export class Game {
     this.angleValue.textContent = Math.round(shot.angle).toString();
     this.powerSlider.value = Math.round(shot.power).toString();
     this.powerValue.textContent = Math.round(shot.power).toString();
+  }
+
+  private updateAIMovement(deltaTime: number): void {
+    const aiAnt = this.ants[this.currentPlayerIndex];
+    if (!aiAnt || !aiAnt.isAlive || !this.aiMovementPlan) {
+      console.log('[AI Movement] Finishing early - no ant or plan');
+      this.finishAIMovement();
+      return;
+    }
+
+    // Update ant movement physics
+    aiAnt.updateMovement(deltaTime, this.terrain);
+
+    // Check if we need to jump
+    if (this.aiMovementPlan.requiresJump && this.aiMovementPlan.jumpAtX !== null) {
+      const jumpDistance = Math.abs(aiAnt.x - this.aiMovementPlan.jumpAtX);
+      if (jumpDistance < 10 && aiAnt.isGrounded) {
+        console.log('[AI Movement] Jumping at', aiAnt.x);
+        aiAnt.jump();
+      }
+    }
+
+    // Check if we reached the target position or ran out of energy
+    const distanceToTarget = Math.abs(aiAnt.x - this.aiMovementPlan.targetX);
+    const reachedTarget = distanceToTarget < 15;
+    const outOfEnergy = aiAnt.movementEnergy <= 0;
+
+    if (reachedTarget || outOfEnergy) {
+      console.log('[AI Movement] Finished - reached:', reachedTarget, 'outOfEnergy:', outOfEnergy, 'finalX:', aiAnt.x);
+      this.finishAIMovement();
+    }
+
+    // Follow AI with camera during movement
+    this.camera.focusOnAnt(aiAnt);
+  }
+
+  private finishAIMovement(): void {
+    const aiAnt = this.ants[this.currentPlayerIndex];
+    if (aiAnt) {
+      aiAnt.stopWalking();
+    }
+
+    this.aiMovementPlan = null;
+
+    // Now proceed to shooting
+    if (aiAnt && aiAnt.isAlive && this.aiTarget) {
+      this.prepareAIShot(aiAnt, this.aiTarget);
+    } else {
+      // Fallback - end turn if something went wrong
+      this.state = 'PLAYING';
+      this.endTurn();
+    }
   }
 
   private executeAIShot(): void {
@@ -1473,6 +1564,7 @@ export class Game {
     this.effects.triggerScreenFlash('#FFF', 0.15 + powerRatio * 0.1);
 
     this.aiShot = null;
+    this.aiTarget = null;
     this.state = 'FIRING';
     soundManager.playShoot();
 
