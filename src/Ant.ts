@@ -1,7 +1,6 @@
 import {
   TANK_WIDTH,
   TANK_HEIGHT,
-  BARREL_LENGTH,
   MAP_HEIGHT
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
@@ -558,10 +557,14 @@ export class Ant {
     const bazookaStartX = thoraxX - direction * 6;
     const bazookaStartY = thoraxY;
 
-    // End of bazooka (muzzle)
+    // Get weapon-specific barrel length (in world coords, scaled from pixel units)
+    const weaponVisual = this.getWeaponVisual();
+    const barrelLength = weaponVisual.length * 2; // Scale from pixel grid to world coords
+
+    // End of weapon (muzzle)
     return {
-      x: bazookaStartX + Math.cos(angleRad) * BARREL_LENGTH,
-      y: bazookaStartY - Math.sin(angleRad) * BARREL_LENGTH,
+      x: bazookaStartX + Math.cos(angleRad) * barrelLength,
+      y: bazookaStartY - Math.sin(angleRad) * barrelLength,
     };
   }
 
@@ -778,40 +781,81 @@ export class Ant {
     const breatheOffset = Math.floor(Math.sin(this.idleTime * 2) * 0.5);
     const legAnim = Math.floor(Math.sin(this.idleTime * 4) * 1);
 
-    // Bazooka angle
+    // Weapon angle
     const angleRad = (this.angle * Math.PI) / 180;
-    const bazookaLen = 12; // pixels at 2x2 scale
 
     // === SHADOW ===
     ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
     ctx.fillRect((baseX - 8) * ANT_PIXEL_SCALE, (baseY + 1) * ANT_PIXEL_SCALE, 18 * ANT_PIXEL_SCALE, 2 * ANT_PIXEL_SCALE);
 
-    // Shoulder position (where bazooka attaches)
+    // Shoulder position (where weapon attaches)
     const shoulderX = baseX + direction * 2;
     const shoulderY = baseY - 10 + breatheOffset;
 
-    // === DRAW BAZOOKA (only for current player) ===
+    // === DRAW WEAPON (only for current player) ===
     if (isCurrentPlayer) {
-      const bazookaColor = '#4A5D23';
-      const bazookaLight = '#5C7A29';
-      const bazookaDark = '#2D3A16';
+      const weaponVisual = this.getWeaponVisual();
+      const weaponLen = weaponVisual.length;
 
-      // Draw bazooka tube along angle (thicker tube)
-      // Note: angle already encodes direction (0=right, 90=up, 180=left)
-      for (let i = 0; i < bazookaLen; i++) {
-        const px = shoulderX + Math.round(Math.cos(angleRad) * i);
-        const py = shoulderY - Math.round(Math.sin(angleRad) * i);
-        // Main tube
-        this.drawPixel(ctx, px, py, bazookaColor);
-        this.drawPixel(ctx, px, py - 1, bazookaLight);
-        this.drawPixel(ctx, px, py + 1, bazookaDark);
+      if (this.selectedWeapon === 'shotgun') {
+        // Shotgun: double barrel effect
+        for (let i = 0; i < weaponLen; i++) {
+          const px = shoulderX + Math.round(Math.cos(angleRad) * i);
+          const py = shoulderY - Math.round(Math.sin(angleRad) * i);
+          // Two parallel barrels
+          this.drawPixel(ctx, px, py - 1, weaponVisual.light);
+          this.drawPixel(ctx, px, py, weaponVisual.color);
+          this.drawPixel(ctx, px, py + 1, weaponVisual.light);
+          this.drawPixel(ctx, px, py + 2, weaponVisual.dark);
+        }
+        // Muzzle - two openings
+        const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * weaponLen);
+        const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * weaponLen);
+        this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY + 1, '#1a1a1a');
+        // Stock
+        this.drawPixel(ctx, shoulderX - Math.round(Math.cos(angleRad) * 2), shoulderY + Math.round(Math.sin(angleRad) * 2), weaponVisual.dark);
+        this.drawPixel(ctx, shoulderX - Math.round(Math.cos(angleRad) * 3), shoulderY + Math.round(Math.sin(angleRad) * 3), weaponVisual.dark);
+      } else if (this.selectedWeapon === 'bazooka') {
+        // Heavy bazooka: thicker tube with scope
+        for (let i = 0; i < weaponLen; i++) {
+          const px = shoulderX + Math.round(Math.cos(angleRad) * i);
+          const py = shoulderY - Math.round(Math.sin(angleRad) * i);
+          // Thicker tube (3 pixels)
+          this.drawPixel(ctx, px, py - 1, weaponVisual.light);
+          this.drawPixel(ctx, px, py, weaponVisual.color);
+          this.drawPixel(ctx, px, py + 1, weaponVisual.color);
+          this.drawPixel(ctx, px, py + 2, weaponVisual.dark);
+        }
+        // Wider muzzle
+        const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * weaponLen);
+        const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * weaponLen);
+        this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY + 1, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY + 2, '#1a1a1a');
+        // Scope detail at mid-barrel
+        const scopeX = shoulderX + Math.round(Math.cos(angleRad) * (weaponLen / 2));
+        const scopeY = shoulderY - Math.round(Math.sin(angleRad) * (weaponLen / 2));
+        this.drawPixel(ctx, scopeX, scopeY - 2, '#333');
+        this.drawPixel(ctx, scopeX, scopeY - 3, '#444');
+      } else {
+        // Standard: normal tube
+        for (let i = 0; i < weaponLen; i++) {
+          const px = shoulderX + Math.round(Math.cos(angleRad) * i);
+          const py = shoulderY - Math.round(Math.sin(angleRad) * i);
+          // Main tube
+          this.drawPixel(ctx, px, py, weaponVisual.color);
+          this.drawPixel(ctx, px, py - 1, weaponVisual.light);
+          this.drawPixel(ctx, px, py + 1, weaponVisual.dark);
+        }
+        // Muzzle opening
+        const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * weaponLen);
+        const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * weaponLen);
+        this.drawPixel(ctx, muzzleX, muzzleY, weaponVisual.dark);
+        this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY + 1, '#1a1a1a');
       }
-      // Muzzle opening
-      const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * bazookaLen);
-      const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * bazookaLen);
-      this.drawPixel(ctx, muzzleX, muzzleY, bazookaDark);
-      this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
-      this.drawPixel(ctx, muzzleX, muzzleY + 1, '#1a1a1a');
     }
 
     // === BACK LEGS (6 legs total for ant, showing 4) ===
@@ -928,15 +972,16 @@ export class Ant {
     this.drawPixel(ctx, baseX + direction * 8 - antennaWave, baseY - 19 + breatheOffset, bodyDark);
     this.drawPixel(ctx, baseX + direction * 8 - antennaWave, baseY - 20 + breatheOffset, bodyColor);
 
-    // === ARM holding bazooka and TARGETING CURSOR (only for current player) ===
+    // === ARM holding weapon and TARGETING CURSOR (only for current player) ===
     if (isCurrentPlayer) {
+      const weaponVisual = this.getWeaponVisual();
       const armX = shoulderX + Math.round(Math.cos(angleRad) * 4);
       const armY = shoulderY - Math.round(Math.sin(angleRad) * 4) + 1;
       this.drawPixel(ctx, armX, armY, bodyDark);
       this.drawPixel(ctx, armX, armY + 1, bodyDark);
 
       // === TARGETING CURSOR ===
-      this.renderTargetingCursor(ctx, shoulderX, shoulderY, angleRad, bazookaLen, chargingPower);
+      this.renderTargetingCursor(ctx, shoulderX, shoulderY, angleRad, weaponVisual.length, chargingPower);
     }
 
     // === CURRENT PLAYER INDICATOR (arrow pointing down) ===
@@ -1243,5 +1288,32 @@ export class Ant {
   private darkenColor(color: string, amount: number): string {
     const { r, g, b } = this.parseColor(color);
     return `rgb(${Math.max(0, r - amount)}, ${Math.max(0, g - amount)}, ${Math.max(0, b - amount)})`;
+  }
+
+  // Get weapon visual properties based on selected weapon
+  private getWeaponVisual(): { color: string; light: string; dark: string; length: number } {
+    switch (this.selectedWeapon) {
+      case 'bazooka':
+        return {
+          color: '#4A3B28', // Dark brown
+          light: '#5C4D3A',
+          dark: '#2D2318',
+          length: 14, // Longer barrel
+        };
+      case 'shotgun':
+        return {
+          color: '#5A5A5A', // Metal grey
+          light: '#7A7A7A',
+          dark: '#3A3A3A',
+          length: 8, // Shorter barrel
+        };
+      default: // standard
+        return {
+          color: '#4A5D23', // Green
+          light: '#5C7A29',
+          dark: '#2D3A16',
+          length: 12,
+        };
+    }
   }
 }

@@ -5,7 +5,7 @@ import { Projectile } from './Projectile.ts';
 import { Explosion } from './Explosion.ts';
 import { AntAI, AIDifficulty } from './AI.ts';
 import { soundManager } from './Sound.ts';
-import { WeaponType } from './weapons/WeaponTypes.ts';
+import { WeaponType, WEAPON_CONFIGS, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
 import { BurnArea } from './weapons/BurnArea.ts';
 import { PowerUpManager } from './powerups/PowerUpManager.ts';
 import { POWERUP_CONFIGS } from './powerups/PowerUpTypes.ts';
@@ -73,6 +73,10 @@ export class Game {
   private mouseY: number;
   private isMouseDown: boolean;
 
+  // Weapon menu
+  private weaponMenuOpen: boolean;
+  private weaponMenuPosition: { x: number; y: number };
+
   // Turn timer
   private turnTimeRemaining: number;
   private maxTurnTime: number;
@@ -126,6 +130,8 @@ export class Game {
     this.mouseX = 0;
     this.mouseY = 0;
     this.isMouseDown = false;
+    this.weaponMenuOpen = false;
+    this.weaponMenuPosition = { x: 0, y: 0 };
     this.maxTurnTime = 30;
     this.turnTimeRemaining = this.maxTurnTime;
     this.playerStats = [];
@@ -226,10 +232,20 @@ export class Game {
     this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
     this.canvas.addEventListener('mouseleave', () => this.handleMouseLeave());
     this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
+
+    // Prevent context menu on right-click
+    this.canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      // Close weapon menu if open
+      if (this.weaponMenuOpen) {
+        this.weaponMenuOpen = false;
+        return;
+      }
       if (this.state === 'SETTINGS') {
         this.state = 'PAUSED';
       } else if (this.state === 'PAUSED') {
@@ -278,22 +294,45 @@ export class Game {
         break;
       case ' ':
         e.preventDefault();
-        if (!this.isChargingPower) {
-          this.isChargingPower = true;
-          this.powerSlider.value = '0';
-          this.powerSlider.dispatchEvent(new Event('input'));
-          soundManager.startCharging();
+        {
+          const tank = this.ants[this.currentPlayerIndex];
+          const weaponConfig = tank.getSelectedWeaponConfig();
+          // Shotgun fires instantly without charging
+          if (!weaponConfig.requiresCharging) {
+            this.fireShotgun();
+            return;
+          }
+          if (!this.isChargingPower) {
+            this.isChargingPower = true;
+            this.powerSlider.value = '0';
+            this.powerSlider.dispatchEvent(new Event('input'));
+            soundManager.startCharging();
+          }
         }
         break;
       case 'Enter':
         e.preventDefault();
-        this.fire();
+        {
+          const tank = this.ants[this.currentPlayerIndex];
+          const weaponConfig = tank.getSelectedWeaponConfig();
+          // Shotgun fires instantly without charging
+          if (!weaponConfig.requiresCharging) {
+            this.fireShotgun();
+          } else {
+            this.fire();
+          }
+        }
         break;
       case 'm':
       case 'M':
         const enabled = soundManager.toggleMusic();
         this.musicButton.textContent = enabled ? '🎵 ON' : '🎵 OFF';
         this.musicButton.classList.toggle('off', !enabled);
+        break;
+      case '1':
+      case '2':
+      case '3':
+        this.selectWeaponByKey(e.key);
         break;
     }
   }
@@ -318,10 +357,41 @@ export class Game {
   }
 
   private handleMouseDown(e: MouseEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    // Right-click: Open weapon menu
+    if (e.button === 2) {
+      if (this.state === 'PLAYING' && !this.isAITurn()) {
+        this.weaponMenuOpen = true;
+        this.weaponMenuPosition = { x: clickX, y: clickY };
+      }
+      return;
+    }
+
+    // Left-click
     if (e.button !== 0) return;
+
+    // If weapon menu is open, handle click on menu
+    if (this.weaponMenuOpen) {
+      this.handleWeaponMenuClick(clickX, clickY);
+      this.weaponMenuOpen = false;
+      return;
+    }
+
     this.isMouseDown = true;
 
     if (this.state === 'PLAYING' && !this.isAITurn()) {
+      const tank = this.ants[this.currentPlayerIndex];
+      const weaponConfig = tank.getSelectedWeaponConfig();
+
+      // Shotgun fires instantly without charging
+      if (!weaponConfig.requiresCharging) {
+        this.fireShotgun();
+        return;
+      }
+
       if (!this.isChargingPower) {
         this.isChargingPower = true;
         this.powerSlider.value = '0';
@@ -876,6 +946,11 @@ export class Game {
       this.hudRenderer.renderTurnTimer(this.ctx, this.turnTimeRemaining, this.maxTurnTime);
     }
 
+    // Weapon menu (UI layer, no camera transform)
+    if (this.weaponMenuOpen && this.state === 'PLAYING') {
+      this.renderWeaponMenu(this.ctx);
+    }
+
     if (this.state === 'GAME_OVER') {
       this.menuRenderer.renderGameOver(
         this.ctx,
@@ -968,6 +1043,7 @@ export class Game {
 
     this.weaponSelector.hide();
     this.buffIndicator.hide();
+    this.weaponMenuOpen = false;
 
     soundManager.startMusic();
     this.musicButton.textContent = soundManager.isMusicPlaying() ? '🎵 ON' : '🎵 OFF';
@@ -1021,6 +1097,7 @@ export class Game {
     if (this.isAITurn()) return;
 
     this.isChargingPower = false;
+    this.weaponMenuOpen = false;
     soundManager.stopCharging();
 
     const tank = this.ants[this.currentPlayerIndex];
@@ -1036,27 +1113,52 @@ export class Game {
     this.projectiles = [];
 
     const barrelEnd = tank.getBarrelEnd();
-    const shotCount = tank.hasDoubleShot() ? 2 : 1;
+    const hasDoubleShot = tank.hasDoubleShot();
+    const pelletCount = weaponConfig.pelletCount;
+    const spreadAngle = weaponConfig.spreadAngle;
 
-    for (let i = 0; i < shotCount; i++) {
-      const shotAngle = shotCount > 1 ? angle + (i === 0 ? -5 : 5) : angle;
+    // Handle multi-pellet weapons (like cluster bomb)
+    if (pelletCount > 1) {
+      for (let i = 0; i < pelletCount; i++) {
+        const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
+        const pelletAngle = angle + spreadOffset;
 
-      const projectile = new Projectile(
-        barrelEnd.x,
-        barrelEnd.y,
-        shotAngle,
-        power,
-        this.wind,
-        tank,
-        weaponConfig
-      );
-      this.projectiles.push(projectile);
+        const projectile = new Projectile(
+          barrelEnd.x,
+          barrelEnd.y,
+          pelletAngle,
+          power,
+          this.wind,
+          tank,
+          weaponConfig
+        );
+        this.projectiles.push(projectile);
+      }
+    } else {
+      // Single projectile weapons (with optional double shot buff)
+      const shotCount = hasDoubleShot ? 2 : 1;
+
+      for (let i = 0; i < shotCount; i++) {
+        const shotAngle = shotCount > 1 ? angle + (i === 0 ? -5 : 5) : angle;
+
+        const projectile = new Projectile(
+          barrelEnd.x,
+          barrelEnd.y,
+          shotAngle,
+          power,
+          this.wind,
+          tank,
+          weaponConfig
+        );
+        this.projectiles.push(projectile);
+      }
+
+      if (hasDoubleShot) {
+        tank.consumeDoubleShot();
+      }
     }
 
     tank.useAmmo();
-    if (shotCount > 1) {
-      tank.consumeDoubleShot();
-    }
 
     this.weaponSelector.update(tank);
     this.buffIndicator.update(tank);
@@ -1073,6 +1175,200 @@ export class Game {
     soundManager.playShoot();
 
     this.playerStats[tank.teamIndex].shotsFired++;
+  }
+
+  private selectWeaponByKey(key: string): void {
+    const index = parseInt(key) - 1;
+    if (index >= 0 && index < WEAPON_ORDER.length) {
+      const weapon = WEAPON_ORDER[index];
+      const tank = this.ants[this.currentPlayerIndex];
+      if (tank && tank.selectWeapon(weapon)) {
+        this.weaponSelector.update(tank);
+        soundManager.playMenuSelect();
+      }
+    }
+  }
+
+  private fireShotgun(): void {
+    if (this.state !== 'PLAYING') return;
+    if (this.isAITurn()) return;
+
+    const tank = this.ants[this.currentPlayerIndex];
+    if (!tank.isAlive) {
+      this.nextPlayer();
+      return;
+    }
+
+    const weaponConfig = tank.getSelectedWeaponConfig();
+    if (weaponConfig.type !== 'shotgun') return;
+
+    const angle = parseInt(this.angleSlider.value);
+    const fixedPower = MAX_POWER * 0.7; // 70% of max power
+
+    this.projectiles = [];
+
+    const barrelEnd = tank.getBarrelEnd();
+    const pelletCount = weaponConfig.pelletCount;
+    const spreadAngle = weaponConfig.spreadAngle;
+
+    // Create multiple pellets with spread
+    for (let i = 0; i < pelletCount; i++) {
+      // Calculate spread offset for each pellet
+      const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
+      const pelletAngle = angle + spreadOffset;
+
+      const projectile = new Projectile(
+        barrelEnd.x,
+        barrelEnd.y,
+        pelletAngle,
+        fixedPower,
+        this.wind,
+        tank,
+        weaponConfig
+      );
+      this.projectiles.push(projectile);
+    }
+
+    tank.useAmmo();
+    this.weaponSelector.update(tank);
+    this.buffIndicator.update(tank);
+
+    tank.fire();
+
+    this.camera.triggerScreenShake(8);
+    this.effects.triggerScreenFlash('#FFF', 0.2);
+
+    this.state = 'FIRING';
+    this.fireButton.disabled = true;
+    this.weaponSelector.setEnabled(false);
+    soundManager.playShoot();
+
+    this.playerStats[tank.teamIndex].shotsFired++;
+  }
+
+  private handleWeaponMenuClick(x: number, y: number): void {
+    const itemHeight = 35;
+    const menuWidth = 180;
+    const menuPadding = 10;
+    const menuHeight = WEAPON_ORDER.length * itemHeight + menuPadding * 2;
+
+    // Convert click coordinates to base coordinates (same as rendering)
+    const clickX = x / SCALE_X;
+    const clickY = y / SCALE_Y;
+
+    // Clamp menu position to base coordinates (same as rendering)
+    let menuX = this.weaponMenuPosition.x / SCALE_X;
+    let menuY = this.weaponMenuPosition.y / SCALE_Y;
+    menuX = Math.min(menuX, BASE_WIDTH - menuWidth - 10);
+    menuY = Math.min(menuY, BASE_HEIGHT - menuHeight - 10);
+
+    // Check which item was clicked
+    for (let i = 0; i < WEAPON_ORDER.length; i++) {
+      const itemY = menuY + menuPadding + i * itemHeight;
+      if (
+        clickX >= menuX &&
+        clickX <= menuX + menuWidth &&
+        clickY >= itemY &&
+        clickY <= itemY + itemHeight
+      ) {
+        const weapon = WEAPON_ORDER[i];
+        const tank = this.ants[this.currentPlayerIndex];
+        if (tank && tank.hasAmmo(weapon) && tank.selectWeapon(weapon)) {
+          this.weaponSelector.update(tank);
+          soundManager.playMenuSelect();
+        }
+        return;
+      }
+    }
+  }
+
+  private renderWeaponMenu(ctx: CanvasRenderingContext2D): void {
+    if (!this.weaponMenuOpen) return;
+
+    const tank = this.ants[this.currentPlayerIndex];
+    if (!tank) return;
+
+    const itemHeight = 35;
+    const menuWidth = 180;
+    const menuPadding = 10;
+    const menuHeight = WEAPON_ORDER.length * itemHeight + menuPadding * 2;
+
+    // Clamp menu position to screen (in canvas coordinates)
+    let menuX = this.weaponMenuPosition.x / SCALE_X;
+    let menuY = this.weaponMenuPosition.y / SCALE_Y;
+    menuX = Math.min(menuX, BASE_WIDTH - menuWidth - 10);
+    menuY = Math.min(menuY, BASE_HEIGHT - menuHeight - 10);
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
+
+    // Border
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
+
+    // Title
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px "Courier New"';
+    ctx.textAlign = 'left';
+
+    // Calculate hover position (in base coordinates)
+    const hoverX = this.mouseX / SCALE_X;
+    const hoverY = this.mouseY / SCALE_Y;
+
+    // Items
+    for (let i = 0; i < WEAPON_ORDER.length; i++) {
+      const weapon = WEAPON_ORDER[i];
+      const config = WEAPON_CONFIGS[weapon];
+      const itemY = menuY + menuPadding + i * itemHeight;
+      const hasAmmo = tank.hasAmmo(weapon);
+      const isSelected = tank.selectedWeapon === weapon;
+
+      // Hover detection
+      const isHovered =
+        hoverX >= menuX &&
+        hoverX <= menuX + menuWidth &&
+        hoverY >= itemY &&
+        hoverY <= itemY + itemHeight;
+
+      // Background highlight
+      if (isHovered && hasAmmo) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.fillRect(menuX + 2, itemY, menuWidth - 4, itemHeight);
+      }
+
+      // Selected indicator
+      if (isSelected) {
+        ctx.fillStyle = 'rgba(100, 200, 100, 0.3)';
+        ctx.fillRect(menuX + 2, itemY, menuWidth - 4, itemHeight);
+      }
+
+      // Text color
+      if (!hasAmmo) {
+        ctx.fillStyle = '#666'; // Greyed out
+      } else if (isHovered) {
+        ctx.fillStyle = '#fff';
+      } else {
+        ctx.fillStyle = '#ccc';
+      }
+
+      // Weapon name
+      ctx.font = 'bold 12px "Courier New"';
+      ctx.fillText(`[${config.keyBinding}] ${config.name}`, menuX + 10, itemY + 15);
+
+      // Ammo count
+      ctx.font = '10px "Courier New"';
+      const ammo = tank.getAmmo(weapon);
+      const ammoText = ammo === -1 ? 'INF' : `${ammo}`;
+      ctx.fillText(`Ammo: ${ammoText}`, menuX + 10, itemY + 28);
+
+      // Selected checkmark
+      if (isSelected) {
+        ctx.fillStyle = '#4ECB71';
+        ctx.fillText('*', menuX + menuWidth - 20, itemY + 20);
+      }
+    }
   }
 
   private startAITurn(): void {

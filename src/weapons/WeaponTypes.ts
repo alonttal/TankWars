@@ -1,6 +1,6 @@
 // Weapon types and configurations
 
-export type WeaponType = 'standard';
+export type WeaponType = 'standard' | 'bazooka' | 'shotgun';
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -19,6 +19,10 @@ export interface WeaponConfig {
   trailColor: { r: number; g: number; b: number };
   description: string;
   keyBinding: string; // 1-6
+  pelletCount: number; // Number of pellets (1 for normal, 8 for shotgun)
+  spreadAngle: number; // Spread angle in degrees (for shotgun)
+  gravityMultiplier: number; // 0 = straight line, 1 = normal arc
+  requiresCharging: boolean; // false for shotgun (instant fire)
 }
 
 export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
@@ -39,11 +43,59 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
     trailColor: { r: 255, g: 150, b: 50 },
     description: 'Reliable all-purpose shell',
     keyBinding: '1',
+    pelletCount: 1,
+    spreadAngle: 0,
+    gravityMultiplier: 1.0,
+    requiresCharging: true,
+  },
+  bazooka: {
+    type: 'bazooka',
+    name: 'Heavy Bazooka',
+    damage: 80,
+    explosionRadius: 50,
+    projectileSpeed: 0.6,
+    projectileSize: 1.5,
+    ammo: 3,
+    maxBounces: 0,
+    clusterCount: 0,
+    clusterDamage: 0,
+    craterDepthMultiplier: 1.3,
+    burnDuration: 0,
+    burnDamagePerSecond: 0,
+    trailColor: { r: 100, g: 100, b: 100 }, // Grey trail
+    description: 'Slow but devastating',
+    keyBinding: '2',
+    pelletCount: 1,
+    spreadAngle: 0,
+    gravityMultiplier: 1.2, // Heavier, more arc
+    requiresCharging: true,
+  },
+  shotgun: {
+    type: 'shotgun',
+    name: 'Cluster Bomb',
+    damage: 15, // Per pellet
+    explosionRadius: 12,
+    projectileSpeed: 1.0,
+    projectileSize: 0.6,
+    ammo: 2,
+    maxBounces: 0,
+    clusterCount: 0,
+    clusterDamage: 0,
+    craterDepthMultiplier: 0.5,
+    burnDuration: 0,
+    burnDamagePerSecond: 0,
+    trailColor: { r: 255, g: 220, b: 100 }, // Yellow trail
+    description: '8 pellets with spread',
+    keyBinding: '3',
+    pelletCount: 8,
+    spreadAngle: 15, // Degrees of spread
+    gravityMultiplier: 1.0, // Normal gravity like standard shell
+    requiresCharging: true, // Requires power charging like standard
   },
 };
 
 // Get all weapon types in order
-export const WEAPON_ORDER: WeaponType[] = ['standard'];
+export const WEAPON_ORDER: WeaponType[] = ['standard', 'bazooka', 'shotgun'];
 
 // Default ammo for each weapon type when game starts
 export function getDefaultAmmo(): Map<WeaponType, number> {

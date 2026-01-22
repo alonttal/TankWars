@@ -189,7 +189,7 @@ export class Projectile {
 
     // Apply physics
     this.vx += wind * deltaTime * 0.5; // Wind affects horizontal velocity
-    this.vy += GRAVITY * deltaTime; // Gravity
+    this.vy += GRAVITY * (this.weaponConfig.gravityMultiplier ?? 1) * deltaTime; // Gravity with weapon multiplier
 
     // Update position
     this.x += this.vx * deltaTime;
