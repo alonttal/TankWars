@@ -750,9 +750,10 @@ export class Game {
   }
 
   private updateFiring(effectiveDelta: number): void {
-    // Update ALL ants that are airborne (knocked back by explosions)
+    // Update ALL ants - check for ground removal and apply physics
+    // This handles both knockback from explosions AND ants whose ground was destroyed
     for (const ant of this.ants) {
-      if (ant.isAlive && !ant.isGrounded) {
+      if (ant.isAlive) {
         ant.updateMovement(effectiveDelta, this.terrain);
       }
     }
