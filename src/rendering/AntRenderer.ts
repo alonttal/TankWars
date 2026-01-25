@@ -110,6 +110,13 @@ export class AntRenderer {
           dark: '#1A1A1A',
           length: 10, // Shorter mortar tube
         };
+      case 'grenade':
+        return {
+          color: '#3D5C3D', // Olive green (grenade body)
+          light: '#5A7A5A',
+          dark: '#2A3A2A',
+          length: 6, // Short - arm holding grenade
+        };
       default: // standard
         return {
           color: '#4A5D23', // Green
@@ -386,6 +393,51 @@ export class AntRenderer {
         // Base/stock
         this.drawPixel(ctx, shoulderX - Math.round(Math.cos(angleRad) * 2), shoulderY + Math.round(Math.sin(angleRad) * 2), weaponVisual.dark);
         this.drawPixel(ctx, shoulderX - Math.round(Math.cos(angleRad) * 3), shoulderY + Math.round(Math.sin(angleRad) * 3), weaponVisual.dark);
+      } else if (ant.selectedWeapon === 'grenade') {
+        // Grenade: arm extended holding a grenade
+        // Draw arm (skin color reaching toward grenade)
+        const armColor = '#D4A574'; // Skin tone
+        const armDark = '#B8956A';
+        for (let i = 0; i < weaponLen - 2; i++) {
+          const px = shoulderX + Math.round(Math.cos(angleRad) * i);
+          const py = shoulderY - Math.round(Math.sin(angleRad) * i);
+          this.drawPixel(ctx, px, py, armColor);
+          this.drawPixel(ctx, px, py + 1, armDark);
+        }
+        // Hand gripping position
+        const handX = shoulderX + Math.round(Math.cos(angleRad) * (weaponLen - 2));
+        const handY = shoulderY - Math.round(Math.sin(angleRad) * (weaponLen - 2));
+        this.drawPixel(ctx, handX, handY, armColor);
+        this.drawPixel(ctx, handX, handY + 1, armDark);
+
+        // Grenade at the end of arm
+        const grenadeX = shoulderX + Math.round(Math.cos(angleRad) * weaponLen);
+        const grenadeY = shoulderY - Math.round(Math.sin(angleRad) * weaponLen);
+
+        // Grenade body (oval shape)
+        this.drawPixel(ctx, grenadeX, grenadeY - 2, weaponVisual.light);  // Top highlight
+        this.drawPixel(ctx, grenadeX - 1, grenadeY - 1, weaponVisual.light);
+        this.drawPixel(ctx, grenadeX, grenadeY - 1, weaponVisual.color);
+        this.drawPixel(ctx, grenadeX + 1, grenadeY - 1, weaponVisual.dark);
+        this.drawPixel(ctx, grenadeX - 1, grenadeY, weaponVisual.color);
+        this.drawPixel(ctx, grenadeX, grenadeY, weaponVisual.color);
+        this.drawPixel(ctx, grenadeX + 1, grenadeY, weaponVisual.dark);
+        this.drawPixel(ctx, grenadeX - 1, grenadeY + 1, weaponVisual.color);
+        this.drawPixel(ctx, grenadeX, grenadeY + 1, weaponVisual.color);
+        this.drawPixel(ctx, grenadeX + 1, grenadeY + 1, weaponVisual.dark);
+        this.drawPixel(ctx, grenadeX, grenadeY + 2, weaponVisual.dark);   // Bottom
+
+        // Grenade top mechanism (grey)
+        this.drawPixel(ctx, grenadeX, grenadeY - 3, '#5A5A5A');
+        this.drawPixel(ctx, grenadeX, grenadeY - 4, '#4A4A4A');
+
+        // Safety lever (small line)
+        this.drawPixel(ctx, grenadeX + 1, grenadeY - 3, '#6A6A6A');
+        this.drawPixel(ctx, grenadeX + 2, grenadeY - 4, '#5A5A5A');
+
+        // Pin ring (yellow/gold) - small detail
+        const pinFlicker = Math.sin(ant.idleTime * 15) > 0.5;
+        this.drawPixel(ctx, grenadeX - 1, grenadeY - 4, pinFlicker ? '#DAA520' : '#B8860B');
       } else {
         // Standard: normal tube
         for (let i = 0; i < weaponLen; i++) {

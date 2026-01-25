@@ -48,10 +48,17 @@ This is a browser-based artillery game (similar to Worms/Scorched Earth) built w
 
 | Directory | Purpose |
 |-----------|---------|
-| `weapons/WeaponTypes.ts` | Weapon configuration (currently only standard shell) |
+| `weapons/WeaponTypes.ts` | Weapon configs: standard, bazooka, shotgun, sniper, napalm, grenade |
 | `powerups/PowerUpTypes.ts` | Power-up types: health, damage boost, shield, double shot |
 | `powerups/PowerUpManager.ts` | Power-up spawning and collection |
 | `ui/WeaponSelector.ts`, `ui/BuffIndicator.ts` | In-game UI components |
+
+### Documentation
+
+| File | Purpose |
+|------|---------|
+| `docs/ADDING_WEAPONS.md` | Step-by-step guide for adding new weapons |
+| `src/AI_WEAPON_SELECTION.md` | How AI selects weapons and calculates shots |
 
 ### Coordinate Systems
 

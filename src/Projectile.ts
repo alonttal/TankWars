@@ -133,6 +133,52 @@ export class Projectile {
     }
   }
 
+  private spawnBounceParticles(x: number, y: number): void {
+    // Smaller particle burst for bounces
+    for (let i = 0; i < 8; i++) {
+      const angle = -Math.PI + Math.random() * Math.PI;
+      const speed = 30 + Math.random() * 50;
+      this.impactParticles.push({
+        x: x + (Math.random() - 0.5) * 10,
+        y: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 20,
+        life: 0.3 + Math.random() * 0.2,
+        maxLife: 0.5,
+        size: 2 + Math.random() * 2,
+        color: '#FFD700',
+      });
+    }
+  }
+
+  // Calculate terrain surface normal at a point for bounce reflection
+  private getSurfaceNormal(terrain: Terrain, x: number): { nx: number; ny: number } {
+    // Sample terrain height at nearby points to estimate slope
+    const sampleDist = 4;
+    const heightLeft = terrain.getHeightAt(x - sampleDist);
+    const heightRight = terrain.getHeightAt(x + sampleDist);
+
+    // Calculate slope (rise over run)
+    const slope = (heightRight - heightLeft) / (sampleDist * 2);
+
+    // Normal is perpendicular to slope (pointing upward)
+    // For a slope dy/dx, the normal is (-dy, dx) normalized
+    const nx = -slope;
+    const ny = -1; // Negative because Y increases downward
+
+    // Normalize
+    const len = Math.sqrt(nx * nx + ny * ny);
+    return { nx: nx / len, ny: ny / len };
+  }
+
+  // Reflect velocity off a surface with given normal
+  private reflectVelocity(normal: { nx: number; ny: number }, damping: number = 0.6): void {
+    // v' = v - 2(v·n)n
+    const dot = this.vx * normal.nx + this.vy * normal.ny;
+    this.vx = (this.vx - 2 * dot * normal.nx) * damping;
+    this.vy = (this.vy - 2 * dot * normal.ny) * damping;
+  }
+
   update(deltaTime: number, terrain: Terrain, ants: Ant[], wind: number): ProjectileState {
     if (!this.active) {
       // Still update trail and impact particles even when projectile is gone
@@ -204,11 +250,54 @@ export class Projectile {
 
     // Check terrain collision (ground and floating platforms)
     if (terrain.isPointInTerrain(this.x, this.y)) {
+      // Check if we should bounce
+      if (this.bouncesRemaining > 0) {
+        // Get surface normal for reflection
+        const normal = this.getSurfaceNormal(terrain, this.x);
+
+        // Reflect velocity with energy loss
+        const damping = 0.65; // Lose 35% energy on each bounce
+        this.reflectVelocity(normal, damping);
+
+        // Move projectile out of terrain
+        const terrainY = MAP_HEIGHT - terrain.getHeightAt(this.x);
+        this.y = terrainY - 2; // Place slightly above terrain
+
+        // Decrement bounces
+        this.bouncesRemaining--;
+
+        // Spawn bounce particles
+        this.spawnBounceParticles(this.x, this.y);
+
+        // Check if velocity is too low to continue bouncing (prevent infinite tiny bounces)
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        if (speed < 30) {
+          // Too slow, explode here
+          this.active = false;
+          this.trail = [];
+          this.spawnImpactParticles(this.x, this.y);
+          return { active: false, hit: true, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+        }
+
+        // Continue bouncing - projectile stays active
+        return { active: true, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+      }
+
+      // No bounces remaining - explode
       this.active = false;
       this.trail = []; // Clear trail on hit
       // Spawn impact dust burst
       this.spawnImpactParticles(this.x, this.y);
       return { active: false, hit: true, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+    }
+
+    // Check wall collision (sides of map) - bounce off walls
+    if (this.bouncesRemaining > 0 && (this.x < 0 || this.x > MAP_WIDTH)) {
+      // Bounce off vertical wall
+      this.vx = -this.vx * 0.7; // Reverse and dampen
+      this.x = this.x < 0 ? 2 : MAP_WIDTH - 2; // Move away from wall
+      this.bouncesRemaining--;
+      this.spawnBounceParticles(this.x, this.y);
     }
 
     // Check ant collision
@@ -348,6 +437,9 @@ export class Projectile {
         case 'napalm':
           this.renderNapalmCanister(ctx);
           break;
+        case 'grenade':
+          this.renderGrenade(ctx);
+          break;
         default:
           this.renderStandardShell(ctx);
       }
@@ -474,6 +566,37 @@ export class Projectile {
     ctx.fill();
 
     this.drawProjectileGlow(ctx, '#FF6600', 16);
+  }
+
+  // Pixel art: Bouncing Grenade - military grenade shape
+  private renderGrenade(ctx: CanvasRenderingContext2D): void {
+    const pixelSize = 2;
+    // Grenade shape: 8x10 pixels - oval body with top mechanism
+    const sprite = [
+      [0, 0, 0, 3, 3, 0, 0, 0],
+      [0, 0, 3, 4, 4, 3, 0, 0],
+      [0, 0, 1, 1, 1, 1, 0, 0],
+      [0, 1, 1, 2, 2, 1, 1, 0],
+      [0, 1, 2, 2, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 0],
+      [0, 0, 1, 1, 1, 1, 0, 0],
+      [0, 0, 0, 1, 1, 0, 0, 0],
+    ];
+    const colors: Record<number, string> = {
+      0: '', // Transparent
+      1: '#3D5C3D', // Olive green body
+      2: '#5A7A5A', // Light green highlight
+      3: '#4A4A4A', // Grey mechanism top
+      4: '#6A6A6A', // Light grey mechanism
+    };
+
+    this.drawPixelSprite(ctx, sprite, colors, pixelSize, -8, -10);
+
+    // Add a subtle pulse glow
+    const pulse = Math.sin(this.time * 10) * 0.3 + 0.7;
+    this.drawProjectileGlow(ctx, '#66AA66', 12 * pulse);
   }
 
   // Helper: Draw a pixel sprite from a 2D array

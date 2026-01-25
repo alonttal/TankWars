@@ -134,10 +134,20 @@ export class AntAI {
         if (distance >= 200 && distance <= 400) score += 25;
         else if (distance > 400) score -= 20; // Hard to aim slow projectile far
       } else if (weapon === 'napalm') {
-        // Napalm is good for area denial and damage over time
+        // Fire bomb bounces and creates fire - good for area denial
         if (distance >= 150 && distance <= 350) score += 20;
         // Bonus if target has high health (burn adds up)
         if (targetHealth > 60) score += 15;
+        // Bouncing helps reach targets behind cover
+        if (!hasLineOfSight) score += 25; // Good alternative when no LOS
+      } else if (weapon === 'grenade') {
+        // Bouncing grenade - great for tricky shots and targets behind cover
+        if (distance >= 100 && distance <= 400) score += 25;
+        else if (distance < 100) score += 10; // Risky at close range (might bounce back)
+        // Excellent when direct shot is blocked - can bounce around obstacles
+        if (!hasLineOfSight) score += 40; // Best option when no direct LOS
+        // Height advantage helps with bouncing trajectory
+        if (heightDiff < -30) score += 15; // Target below - good for bouncing down
       }
       // Standard is neutral on distance
 

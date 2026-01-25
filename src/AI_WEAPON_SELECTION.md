@@ -53,7 +53,8 @@ Each weapon gets a score based on:
 | Bazooka | 200-400px | None | Penalized at long range (slow projectile) |
 | Shotgun | 150-350px | None | Spread makes it forgiving at medium range |
 | Sniper | 250-400px+ | **Requires LOS + viability** | Must pass `checkSniperViability()`, penalized if target is higher |
-| Napalm | 150-350px | High health targets | Burn damage adds up over time |
+| Napalm | 150-350px | High health targets, **bounces** | 2 bounces, creates fire, good when no LOS |
+| Grenade | 100-400px | **Bounces 4x**, no LOS bonus | Best for hitting targets behind cover |
 
 ### Sniper Height Scoring
 | Height Difference | Score Modifier |
@@ -98,6 +99,14 @@ Shot scoring penalizes:
 - Same as arc weapons for aiming
 - Score calculation assumes partial hits
 - Higher risk of friendly fire due to spread
+
+### Bouncing Weapons (Grenade, Fire Bomb)
+- `maxBounces > 0` in weapon config
+- Projectile reflects off terrain with 65% energy retention per bounce
+- Also bounces off map walls (left/right boundaries)
+- Explodes when: bounces exhausted, speed < 30, or hits an ant
+- **AI bonus when no LOS**: +25 for napalm, +40 for grenade (can bounce around obstacles)
+- Good for targets behind cover or below shooter
 
 ## Adding a New Weapon
 
@@ -163,6 +172,7 @@ If the weapon fires in a straight line (low gravity, high speed), it needs LOS:
 | `requiresCharging: false` | AI uses direct aim, fixed 100% power |
 | `pelletCount > 1` | Score assumes ~40% pellet hit rate |
 | `burnDuration > 0` | Bonus against high-health targets |
+| `maxBounces > 0` | **Bounces off terrain/walls**, bonus when no LOS to target |
 
 ## Collision Awareness
 
