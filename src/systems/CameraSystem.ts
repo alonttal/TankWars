@@ -166,6 +166,23 @@ export class CameraSystem {
     this.targetZoom = targetZoom;
   }
 
+  // Focus camera on a falling power-up
+  focusOnPowerUp(x: number, y: number): void {
+    // Clamp the target position to map bounds
+    const clampedX = Math.max(0, Math.min(MAP_WIDTH, x));
+    const clampedY = Math.max(0, Math.min(MAP_HEIGHT, y));
+
+    const targetZoom = 0.65; // More zoomed in than ant (0.5) to highlight the power-up
+    const clamped = this.clampOffset(
+      BASE_WIDTH / 2 - clampedX,
+      BASE_HEIGHT / 2 - clampedY,
+      targetZoom
+    );
+    this.targetOffsetX = clamped.x;
+    this.targetOffsetY = clamped.y;
+    this.targetZoom = targetZoom;
+  }
+
   // Reset to default zoom
   resetZoom(): void {
     this.targetZoom = 0.5;

@@ -382,21 +382,6 @@ export class Ant {
 
   takeDamage(amount: number): void {
     const originalAmount = amount;
-    const shieldBuff = this.activeBuffs.find(b => b.type === 'shield');
-    if (shieldBuff) {
-      const absorbed = Math.min(amount, shieldBuff.remainingValue);
-      shieldBuff.remainingValue -= absorbed;
-      amount -= absorbed;
-
-      if (shieldBuff.remainingValue <= 0) {
-        this.activeBuffs = this.activeBuffs.filter(b => b.type !== 'shield');
-      }
-
-      if (amount <= 0) {
-        this.damageFlash = 0.1;
-        return;
-      }
-    }
 
     this.health -= amount;
     this.damageFlash = 0.3;
@@ -483,22 +468,6 @@ export class Ant {
   }
 
   private takeFallDamage(amount: number): void {
-    const shieldBuff = this.activeBuffs.find(b => b.type === 'shield');
-    if (shieldBuff) {
-      const absorbed = Math.min(amount, shieldBuff.remainingValue);
-      shieldBuff.remainingValue -= absorbed;
-      amount -= absorbed;
-
-      if (shieldBuff.remainingValue <= 0) {
-        this.activeBuffs = this.activeBuffs.filter(b => b.type !== 'shield');
-      }
-
-      if (amount <= 0) {
-        this.damageFlash = 0.1;
-        return;
-      }
-    }
-
     this.health -= amount;
     this.damageFlash = 0.2;
 
@@ -893,15 +862,11 @@ export class Ant {
     return ammo === -1 || (ammo !== undefined && ammo > 0);
   }
 
-  // Buff management
+  // Buff management (simplified - only health power-up exists, which is instant)
   addBuff(buff: ActiveBuff): void {
     const existingIndex = this.activeBuffs.findIndex(b => b.type === buff.type);
     if (existingIndex >= 0) {
-      if (buff.type === 'shield') {
-        this.activeBuffs[existingIndex].remainingValue += buff.remainingValue;
-      } else {
-        this.activeBuffs[existingIndex] = buff;
-      }
+      this.activeBuffs[existingIndex] = buff;
     } else {
       this.activeBuffs.push(buff);
     }
@@ -920,32 +885,21 @@ export class Ant {
   }
 
   getDamageMultiplier(): number {
-    const damageBuff = this.activeBuffs.find(b => b.type === 'damage_boost');
-    return damageBuff ? damageBuff.remainingValue : 1.0;
+    // No damage boost power-up anymore, always return 1.0
+    return 1.0;
   }
 
   consumeDamageBoost(): void {
-    const damageBuff = this.activeBuffs.find(b => b.type === 'damage_boost');
-    if (damageBuff && damageBuff.duration !== null) {
-      damageBuff.duration--;
-      if (damageBuff.duration <= 0) {
-        this.removeBuff('damage_boost');
-      }
-    }
+    // No damage boost power-up anymore, no-op
   }
 
   hasDoubleShot(): boolean {
-    return this.hasBuff('double_shot');
+    // No double shot power-up anymore
+    return false;
   }
 
   consumeDoubleShot(): void {
-    const doubleShotBuff = this.activeBuffs.find(b => b.type === 'double_shot');
-    if (doubleShotBuff && doubleShotBuff.duration !== null) {
-      doubleShotBuff.duration--;
-      if (doubleShotBuff.duration <= 0) {
-        this.removeBuff('double_shot');
-      }
-    }
+    // No double shot power-up anymore, no-op
   }
 
   heal(amount: number): void {

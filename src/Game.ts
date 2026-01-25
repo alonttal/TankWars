@@ -264,7 +264,7 @@ export class Game {
         this.state = 'PAUSED';
       } else if (this.state === 'PAUSED') {
         this.resumeGame();
-      } else if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'AI_MOVING') {
+      } else if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'AI_MOVING' || this.state === 'POWERUP_FALLING') {
         this.pauseGame();
       }
       return;
@@ -696,6 +696,11 @@ export class Game {
       this.updateFiring(effectiveDelta);
     }
 
+    // Power-up falling state
+    if (this.state === 'POWERUP_FALLING') {
+      this.updatePowerUpFalling(effectiveDelta);
+    }
+
     // Update power-ups
     if (this.state === 'PLAYING' || this.state === 'FIRING') {
       this.updatePowerUps(effectiveDelta);
@@ -954,6 +959,42 @@ export class Game {
         scale: 1.2,
         isCritical: false,
       });
+    }
+  }
+
+  private updatePowerUpFalling(deltaTime: number): void {
+    // Update the falling power-up
+    const landed = this.powerUpManager.updateFalling(deltaTime);
+
+    // Focus camera on the falling power-up
+    const fallingPowerUp = this.powerUpManager.getFallingPowerUp();
+    if (fallingPowerUp) {
+      this.camera.focusOnPowerUp(fallingPowerUp.x, fallingPowerUp.y);
+    }
+
+    // When power-up lands, proceed to next turn
+    if (landed) {
+      this.proceedToNextTurn();
+    }
+  }
+
+  private proceedToNextTurn(): void {
+    this.wind += (Math.random() - 0.5) * 10;
+    this.wind = Math.max(-WIND_STRENGTH_MAX, Math.min(WIND_STRENGTH_MAX, this.wind));
+    this.updateWindDisplay();
+
+    this.nextPlayer();
+
+    const currentAnt = this.ants[this.currentPlayerIndex];
+    this.weaponSelector.update(currentAnt);
+    this.buffIndicator.update(currentAnt);
+    this.weaponSelector.setEnabled(true);
+
+    if (this.isAITurn()) {
+      this.startAITurn();
+    } else {
+      this.state = 'PLAYING';
+      this.fireButton.disabled = false;
     }
   }
 
@@ -1655,25 +1696,17 @@ export class Game {
       return;
     }
 
-    this.powerUpManager.trySpawn(this.terrain, this.ants);
-
-    this.wind += (Math.random() - 0.5) * 10;
-    this.wind = Math.max(-WIND_STRENGTH_MAX, Math.min(WIND_STRENGTH_MAX, this.wind));
-    this.updateWindDisplay();
-
-    this.nextPlayer();
-
-    const currentAnt = this.ants[this.currentPlayerIndex];
-    this.weaponSelector.update(currentAnt);
-    this.buffIndicator.update(currentAnt);
-    this.weaponSelector.setEnabled(true);
-
-    if (this.isAITurn()) {
-      this.startAITurn();
-    } else {
-      this.state = 'PLAYING';
-      this.fireButton.disabled = false;
+    // Try to spawn a power-up
+    const spawnedPowerUp = this.powerUpManager.trySpawn(this.terrain, this.ants);
+    if (spawnedPowerUp) {
+      // Power-up spawned - transition to falling state
+      this.state = 'POWERUP_FALLING';
+      this.fireButton.disabled = true;
+      return;
     }
+
+    // No power-up spawned - proceed directly to next turn
+    this.proceedToNextTurn();
   }
 
   private nextPlayer(): void {

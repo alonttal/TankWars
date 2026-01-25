@@ -30,33 +30,28 @@ export class BuffIndicator {
 
     if (!ant) return;
 
+    // Currently only health power-up exists, which is instant and doesn't create buffs
+    // This component is kept for potential future buff power-ups
     for (const buff of ant.activeBuffs) {
       const config = POWERUP_CONFIGS[buff.type];
+      if (!config) continue;
 
       const buffElement = document.createElement('div');
       buffElement.className = 'buff-item';
       buffElement.style.borderColor = config.color;
       buffElement.style.backgroundColor = `${config.color}33`;
 
-      // Icon
+      // Icon - use a simple plus sign for health
       const iconSpan = document.createElement('span');
       iconSpan.className = 'buff-icon';
-      iconSpan.textContent = config.icon;
+      iconSpan.textContent = '+';
       iconSpan.style.color = config.color;
       buffElement.appendChild(iconSpan);
 
       // Value/info
       const infoSpan = document.createElement('span');
       infoSpan.className = 'buff-info';
-
-      if (buff.type === 'shield') {
-        infoSpan.textContent = `${Math.ceil(buff.remainingValue)}`;
-      } else if (buff.type === 'damage_boost') {
-        infoSpan.textContent = `${buff.remainingValue}x`;
-      } else if (buff.type === 'double_shot') {
-        infoSpan.textContent = `x2`;
-      }
-
+      infoSpan.textContent = `${Math.ceil(buff.remainingValue)}`;
       buffElement.appendChild(infoSpan);
 
       // Tooltip
