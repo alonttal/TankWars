@@ -1,4 +1,11 @@
 import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT, TERRAIN_SCALE, PLAYABLE_WIDTH, PLAYABLE_HEIGHT, PLAYABLE_OFFSET_X, PLAYABLE_OFFSET_Y } from './constants.ts';
+import { WeatherType } from './types/WeatherTypes.ts';
+
+// Weather visual state for background rendering
+export interface WeatherVisualState {
+  type: WeatherType;
+  intensity: number; // 0-1, how strong the weather effect is (used for transitions)
+}
 
 interface TerrainTheme {
   name: string;
@@ -823,6 +830,10 @@ export class Terrain {
     return surfaceBY >= 0 ? MAP_HEIGHT - surfaceBY * TERRAIN_SCALE : 0;
   }
 
+  getThemeName(): string {
+    return this.theme.name;
+  }
+
   // Check if a world position collides with terrain - inlined for hot path performance
   isPointInTerrain(x: number, y: number): boolean {
     const ix = Math.floor(x / TERRAIN_SCALE);
@@ -970,40 +981,50 @@ export class Terrain {
   }
 
   // Render background layer (sky, sun, clouds)
-  renderBackground(ctx: CanvasRenderingContext2D): void {
-    // Draw sky gradient
+  renderBackground(ctx: CanvasRenderingContext2D, weather?: WeatherVisualState): void {
+    const weatherType = weather?.type || 'clear';
+    const weatherIntensity = weather?.intensity ?? 0;
+
+    // Calculate weather-based modifiers
+    const { skyDarken, sunOpacity, cloudColor, cloudOpacityMod, showClouds } = this.getWeatherModifiers(weatherType, weatherIntensity);
+
+    // Draw sky gradient (potentially darkened by weather)
     const skyGradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT * 0.6);
-    skyGradient.addColorStop(0, this.theme.skyTop);
-    skyGradient.addColorStop(0.5, this.theme.skyMid);
-    skyGradient.addColorStop(1, this.theme.skyBottom);
+    skyGradient.addColorStop(0, this.blendColor(this.theme.skyTop, '#000000', skyDarken));
+    skyGradient.addColorStop(0.5, this.blendColor(this.theme.skyMid, '#000000', skyDarken));
+    skyGradient.addColorStop(1, this.blendColor(this.theme.skyBottom, '#000000', skyDarken));
     ctx.fillStyle = skyGradient;
     ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
-    // Draw sun with lens flare
-    this.renderSun(ctx);
+    // Draw sun with lens flare (dimmed by weather)
+    if (sunOpacity > 0) {
+      this.renderSun(ctx, sunOpacity);
+    }
 
-    // Draw clouds
-    for (const cloud of this.clouds) {
-      ctx.globalAlpha = cloud.opacity;
+    // Draw clouds (modified by weather)
+    if (showClouds) {
+      for (const cloud of this.clouds) {
+        ctx.globalAlpha = cloud.opacity * cloudOpacityMod;
 
-      const puffs = [
-        { xOff: 0, yOff: 0, wScale: 1, hScale: 1 },
-        { xOff: -0.3, yOff: 0.1, wScale: 0.6, hScale: 0.8 },
-        { xOff: 0.3, yOff: 0.1, wScale: 0.7, hScale: 0.9 },
-        { xOff: -0.15, yOff: -0.2, wScale: 0.5, hScale: 0.6 },
-        { xOff: 0.2, yOff: -0.15, wScale: 0.55, hScale: 0.7 },
-      ];
+        const puffs = [
+          { xOff: 0, yOff: 0, wScale: 1, hScale: 1 },
+          { xOff: -0.3, yOff: 0.1, wScale: 0.6, hScale: 0.8 },
+          { xOff: 0.3, yOff: 0.1, wScale: 0.7, hScale: 0.9 },
+          { xOff: -0.15, yOff: -0.2, wScale: 0.5, hScale: 0.6 },
+          { xOff: 0.2, yOff: -0.15, wScale: 0.55, hScale: 0.7 },
+        ];
 
-      ctx.fillStyle = '#FFF';
-      for (const puff of puffs) {
-        const px = cloud.x + cloud.width * puff.xOff;
-        const py = cloud.y + cloud.height * puff.yOff;
-        const pw = cloud.width * puff.wScale;
-        const ph = cloud.height * puff.hScale;
+        ctx.fillStyle = cloudColor;
+        for (const puff of puffs) {
+          const px = cloud.x + cloud.width * puff.xOff;
+          const py = cloud.y + cloud.height * puff.yOff;
+          const pw = cloud.width * puff.wScale;
+          const ph = cloud.height * puff.hScale;
 
-        ctx.beginPath();
-        ctx.ellipse(px, py, pw / 2, ph / 2, 0, 0, Math.PI * 2);
-        ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(px, py, pw / 2, ph / 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
     ctx.globalAlpha = 1;
@@ -1157,6 +1178,74 @@ export class Terrain {
     };
   }
 
+  // Blend two hex colors together
+  private blendColor(color1: string, color2: string, t: number): string {
+    const c1 = this.parseColor(color1);
+    const c2 = this.parseColor(color2);
+    const r = Math.round(c1.r + (c2.r - c1.r) * t);
+    const g = Math.round(c1.g + (c2.g - c1.g) * t);
+    const b = Math.round(c1.b + (c2.b - c1.b) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  // Get visual modifiers based on weather type
+  private getWeatherModifiers(weatherType: WeatherType, intensity: number): {
+    skyDarken: number;
+    sunOpacity: number;
+    cloudColor: string;
+    cloudOpacityMod: number;
+    showClouds: boolean;
+  } {
+    // Base values for clear weather
+    let skyDarken = 0;
+    let sunOpacity = 1;
+    let cloudColor = '#FFFFFF';
+    let cloudOpacityMod = 1;
+    let showClouds = true;
+
+    switch (weatherType) {
+      case 'clear':
+        // Default sunny values
+        break;
+
+      case 'rain':
+        // Dark ominous storm clouds, hidden sun
+        skyDarken = 0.35 * intensity;
+        sunOpacity = Math.max(0, 1 - intensity * 0.95);
+        // Much darker storm cloud color - grey with slight purple tint
+        cloudColor = this.blendColor('#FFFFFF', '#3A3D4A', intensity);
+        cloudOpacityMod = 1.2 + intensity * 0.8; // Much more visible, dense clouds
+        break;
+
+      case 'fog':
+        // Hazy sky, very dim sun, faded clouds
+        skyDarken = 0.1 * intensity;
+        sunOpacity = Math.max(0.1, 1 - intensity * 0.7);
+        cloudColor = this.blendColor('#FFFFFF', '#C0C8D0', intensity);
+        cloudOpacityMod = 0.5 + (1 - intensity) * 0.5; // Clouds fade into fog
+        break;
+
+      case 'snow':
+        // Slightly grey sky, pale sun, grey-white clouds
+        skyDarken = 0.15 * intensity;
+        sunOpacity = Math.max(0.2, 1 - intensity * 0.5);
+        cloudColor = this.blendColor('#FFFFFF', '#D0D8E0', intensity);
+        cloudOpacityMod = 1 + intensity * 0.3;
+        break;
+
+      case 'sandstorm':
+        // Orange-brown sky, sun hidden, no visible clouds
+        skyDarken = 0.2 * intensity;
+        sunOpacity = Math.max(0, 1 - intensity * 0.9);
+        showClouds = intensity < 0.5; // Clouds disappear in strong sandstorm
+        cloudColor = this.blendColor('#FFFFFF', '#C8A060', intensity);
+        cloudOpacityMod = Math.max(0, 1 - intensity);
+        break;
+    }
+
+    return { skyDarken, sunOpacity, cloudColor, cloudOpacityMod, showClouds };
+  }
+
   private drawRocks(ctx: OffscreenCanvasRenderingContext2D): void {
     const rockPositions = [50, 150, 280, 400, 520, 650, 750, 900, 1050, 1150];
 
@@ -1202,8 +1291,11 @@ export class Terrain {
     }
   }
 
-  private renderSun(ctx: CanvasRenderingContext2D): void {
+  private renderSun(ctx: CanvasRenderingContext2D, opacity: number = 1): void {
     const pulse = 0.9 + Math.sin(this.sunPulse) * 0.1;
+
+    ctx.save();
+    ctx.globalAlpha = opacity;
 
     // Outer glow
     const outerGlow = ctx.createRadialGradient(
@@ -1245,27 +1337,34 @@ export class Terrain {
     ctx.arc(this.sunX, this.sunY, 20, 0, Math.PI * 2);
     ctx.fill();
 
-    // Lens flare elements
-    const flareColors = [
-      { dist: 0.3, size: 8, color: 'rgba(255, 200, 100, 0.3)' },
-      { dist: 0.5, size: 5, color: 'rgba(200, 255, 200, 0.2)' },
-      { dist: 0.7, size: 12, color: 'rgba(150, 200, 255, 0.15)' },
-      { dist: 0.9, size: 6, color: 'rgba(255, 150, 200, 0.2)' },
-    ];
+    // Lens flare elements (only show when sun is mostly visible)
+    if (opacity > 0.5) {
+      const flareOpacity = (opacity - 0.5) * 2; // Scale 0.5-1 to 0-1
+      ctx.globalAlpha = opacity * flareOpacity;
 
-    const centerX = BASE_WIDTH / 2;
-    const centerY = BASE_HEIGHT / 2;
-    const dx = centerX - this.sunX;
-    const dy = centerY - this.sunY;
+      const flareColors = [
+        { dist: 0.3, size: 8, color: 'rgba(255, 200, 100, 0.3)' },
+        { dist: 0.5, size: 5, color: 'rgba(200, 255, 200, 0.2)' },
+        { dist: 0.7, size: 12, color: 'rgba(150, 200, 255, 0.15)' },
+        { dist: 0.9, size: 6, color: 'rgba(255, 150, 200, 0.2)' },
+      ];
 
-    for (const flare of flareColors) {
-      const fx = this.sunX + dx * flare.dist;
-      const fy = this.sunY + dy * flare.dist;
-      ctx.fillStyle = flare.color;
-      ctx.beginPath();
-      ctx.arc(fx, fy, flare.size * pulse, 0, Math.PI * 2);
-      ctx.fill();
+      const centerX = BASE_WIDTH / 2;
+      const centerY = BASE_HEIGHT / 2;
+      const dx = centerX - this.sunX;
+      const dy = centerY - this.sunY;
+
+      for (const flare of flareColors) {
+        const fx = this.sunX + dx * flare.dist;
+        const fy = this.sunY + dy * flare.dist;
+        ctx.fillStyle = flare.color;
+        ctx.beginPath();
+        ctx.arc(fx, fy, flare.size * pulse, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
+
+    ctx.restore();
   }
 
   // Get a safe spawn position for an ant (on solid ground, not inside caves)

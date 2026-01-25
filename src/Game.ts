@@ -16,9 +16,11 @@ import { BuffIndicator } from './ui/BuffIndicator.ts';
 import { GameState, GameMode, MenuItem, PlayerStats } from './types/GameTypes.ts';
 import { CameraSystem } from './systems/CameraSystem.ts';
 import { EffectsSystem } from './systems/EffectsSystem.ts';
+import { WeatherSystem } from './systems/WeatherSystem.ts';
 import { MenuRenderer } from './rendering/MenuRenderer.ts';
 import { HUDRenderer } from './rendering/HUDRenderer.ts';
 import { EffectsRenderer } from './rendering/EffectsRenderer.ts';
+import { WeatherRenderer } from './rendering/WeatherRenderer.ts';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -105,9 +107,11 @@ export class Game {
   // Extracted systems
   private camera: CameraSystem;
   private effects: EffectsSystem;
+  private weather: WeatherSystem;
   private menuRenderer: MenuRenderer;
   private hudRenderer: HUDRenderer;
   private effectsRenderer: EffectsRenderer;
+  private weatherRenderer: WeatherRenderer;
 
   constructor() {
     this.canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -154,9 +158,11 @@ export class Game {
     // Initialize extracted systems
     this.camera = new CameraSystem();
     this.effects = new EffectsSystem();
+    this.weather = new WeatherSystem();
     this.menuRenderer = new MenuRenderer();
     this.hudRenderer = new HUDRenderer();
     this.effectsRenderer = new EffectsRenderer();
+    this.weatherRenderer = new WeatherRenderer();
 
     // Initialize weapon and power-up systems
     this.projectiles = [];
@@ -362,6 +368,18 @@ export class Game {
           // Transition to falling state so camera follows and animation plays
           this.state = 'POWERUP_FALLING';
           this.fireButton.disabled = true;
+        }
+        break;
+      case 'w':
+      case 'W':
+        // Debug: Cycle through weather types for testing
+        {
+          const weatherTypes: Array<'clear' | 'rain' | 'fog' | 'snow' | 'sandstorm'> = ['clear', 'rain', 'fog', 'snow', 'sandstorm'];
+          const currentIndex = weatherTypes.indexOf(this.weather.currentWeather);
+          const nextIndex = (currentIndex + 1) % weatherTypes.length;
+          const nextWeather = weatherTypes[nextIndex];
+          this.weather.forceWeather(nextWeather);
+          console.log(`[Debug] Weather changed to: ${nextWeather}`);
         }
         break;
     }
@@ -648,6 +666,9 @@ export class Game {
 
     // Update terrain
     this.terrain.update(effectiveDelta, this.wind);
+
+    // Update weather system
+    this.weather.update(effectiveDelta, this.wind);
 
     // Update menu renderer animations
     this.menuRenderer.update(deltaTime, this.state, this.menuItems.length);
@@ -1006,8 +1027,18 @@ export class Game {
   }
 
   private proceedToNextTurn(): void {
+    // Base wind change
     this.wind += (Math.random() - 0.5) * 10;
     this.wind = Math.max(-WIND_STRENGTH_MAX, Math.min(WIND_STRENGTH_MAX, this.wind));
+
+    // Weather modifies wind and may trigger effects
+    const { modifiedWind, shouldFlash } = this.weather.onTurnStart(this.wind);
+    this.wind = Math.max(-WIND_STRENGTH_MAX, Math.min(WIND_STRENGTH_MAX, modifiedWind));
+
+    if (shouldFlash) {
+      this.effects.triggerScreenFlash('#FFFFFF', 0.3);
+    }
+
     this.updateWindDisplay();
 
     this.nextPlayer();
@@ -1041,7 +1072,20 @@ export class Game {
     // Background layer (with parallax)
     this.ctx.save();
     this.camera.applyTransform(this.ctx, BACKGROUND_PARALLAX);
-    this.terrain.renderBackground(this.ctx);
+    // Pass weather state to terrain for sun/cloud adjustments
+    // Use target weather type when past 50% of transition
+    const transitionProgress = this.weather.getTransitionProgress();
+    const targetConfig = this.weather.getTargetConfig();
+    const currentConfig = this.weather.getCurrentConfig();
+    const weatherState = {
+      type: transitionProgress >= 0.5 ? targetConfig.type : currentConfig.type,
+      intensity: transitionProgress >= 0.5
+        ? (transitionProgress - 0.5) * 2  // 0 to 1 as target appears
+        : 1 - transitionProgress * 2,     // 1 to 0 as current fades
+    };
+    this.terrain.renderBackground(this.ctx, weatherState);
+    // Render weather particles in background layer
+    this.weatherRenderer.renderWeatherParticles(this.ctx, this.weather, this.wind);
     this.ctx.restore();
 
     // Gameplay layer
@@ -1078,6 +1122,9 @@ export class Game {
       explosion.render(this.ctx);
     }
 
+    // Weather foreground particles (in front of terrain and ants for depth)
+    this.weatherRenderer.renderWeatherForeground(this.ctx, this.weather, this.wind);
+
     // Screen flash
     this.effectsRenderer.renderScreenFlash(
       this.ctx,
@@ -1085,11 +1132,23 @@ export class Game {
       this.effects.screenFlashColor
     );
 
+    // Weather atmosphere overlay and visibility mask
+    this.weatherRenderer.renderAtmosphereOverlay(this.ctx, this.weather);
+    const currentAnt = this.ants[this.currentPlayerIndex];
+    if (currentAnt) {
+      this.weatherRenderer.renderVisibilityMask(this.ctx, this.weather, currentAnt.x, currentAnt.y);
+    }
+
     this.ctx.restore();
 
     // UI layer (no camera movement)
     if ((this.state === 'PLAYING' || this.state === 'AI_THINKING') && !this.isAITurn()) {
       this.hudRenderer.renderTurnTimer(this.ctx, this.turnTimeRemaining, this.maxTurnTime);
+    }
+
+    // Weather indicator (always show during gameplay, but not on game over screen)
+    if (this.state !== 'GAME_OVER') {
+      this.weatherRenderer.renderWeatherIndicator(this.ctx, this.weather, BASE_WIDTH - 30, 30);
     }
 
     // Weapon menu (UI layer, no camera transform)
@@ -1157,6 +1216,10 @@ export class Game {
 
     // Generate terrain
     this.terrain.generate();
+
+    // Initialize weather for terrain theme
+    this.weather.setTerrainTheme(this.terrain.getThemeName());
+    this.weather.clear();
 
     // Create ants
     this.playerStats = [];
