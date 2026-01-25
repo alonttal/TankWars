@@ -1,4 +1,4 @@
-import { MAP_WIDTH } from '../constants.ts';
+import { PLAYABLE_WIDTH, PLAYABLE_OFFSET_X } from '../constants.ts';
 import { PowerUp } from './PowerUp.ts';
 import { PowerUpType, POWERUP_CONFIGS, POWERUP_ORDER, getTotalSpawnWeight } from './PowerUpTypes.ts';
 import { Terrain } from '../Terrain.ts';
@@ -55,7 +55,8 @@ export class PowerUpManager {
     const maxAttempts = 20;
 
     while (attempts < maxAttempts) {
-      const x = 50 + Math.random() * (MAP_WIDTH - 100);
+      // Spawn only within the playable area where terrain exists
+      const x = PLAYABLE_OFFSET_X + 50 + Math.random() * (PLAYABLE_WIDTH - 100);
 
       // Check if there's valid terrain at this position
       if (!PowerUp.isValidSpawnPosition(x, terrain)) {
@@ -120,11 +121,11 @@ export class PowerUpManager {
     return powerUp;
   }
 
-  update(deltaTime: number, ants: Ant[]): { ant: Ant; type: PowerUpType } | null {
+  update(deltaTime: number, ants: Ant[], terrain: Terrain): { ant: Ant; type: PowerUpType } | null {
     let collectedInfo: { ant: Ant; type: PowerUpType } | null = null;
 
     for (const powerUp of this.powerUps) {
-      const collectedBy = powerUp.update(deltaTime, ants);
+      const collectedBy = powerUp.update(deltaTime, ants, terrain);
 
       if (collectedBy) {
         // Apply the power-up effect

@@ -60,10 +60,10 @@ export class PowerUp {
     this.collectAnimTime = 0;
   }
 
-  // Check if a spawn position has valid ground
+  // Check if a spawn position has valid ground (minimum 50px of terrain)
   static isValidSpawnPosition(x: number, terrain: Terrain): boolean {
     const terrainHeight = terrain.getHeightAt(x);
-    return terrainHeight > 0;
+    return terrainHeight >= 50;
   }
 
   // Update falling state - returns true when landed
@@ -74,6 +74,13 @@ export class PowerUp {
     this.velocityY += POWERUP_GRAVITY * deltaTime;
 
     this.y += this.velocityY * deltaTime;
+
+    // Check if fallen below map (no ground beneath) - deactivate
+    if (this.y >= MAP_HEIGHT) {
+      this.active = false;
+      this.isFalling = false;
+      return false;
+    }
 
     // Check if landed
     if (this.y >= this.targetY) {
@@ -100,7 +107,7 @@ export class PowerUp {
     return false;
   }
 
-  update(deltaTime: number, ants: Ant[]): Ant | null {
+  update(deltaTime: number, ants: Ant[], terrain: Terrain): Ant | null {
     if (!this.active) {
       // Update collection animation
       if (this.collected) {
@@ -115,6 +122,18 @@ export class PowerUp {
         this.sparkleParticles = this.sparkleParticles.filter(p => p.life > 0);
       }
       return null;
+    }
+
+    // Check if ground still exists beneath landed power-up
+    if (!this.isFalling) {
+      const terrainHeight = terrain.getHeightAt(this.x);
+      const groundY = MAP_HEIGHT - terrainHeight - 15;
+      // If ground is gone or significantly lower, start falling again
+      if (this.y < groundY - 5) {
+        this.isFalling = true;
+        this.targetY = groundY;
+        this.velocityY = 0;
+      }
     }
 
     // Don't allow collection while falling

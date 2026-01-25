@@ -338,6 +338,18 @@ export class Ant {
     if (this.velocityY > 0) {
       const groundHeight = terrain.getHeightAt(this.x);
       const groundY = MAP_HEIGHT - groundHeight;
+
+      // Check if ant has fallen below the map (no ground beneath)
+      if (newY >= MAP_HEIGHT) {
+        this.y = MAP_HEIGHT;
+        this.health = 0;
+        this.isAlive = false;
+        this.deathType = 'disintegrate';
+        this.deathDelayTimer = 0;
+        this.deathAnimationStage = 0;
+        return;
+      }
+
       if (newY >= groundY) {
         if (this.velocityY > FALL_DAMAGE_VELOCITY_THRESHOLD) {
           const fallDamage = Math.floor((this.velocityY - FALL_DAMAGE_VELOCITY_THRESHOLD) * FALL_DAMAGE_MULTIPLIER);

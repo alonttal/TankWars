@@ -969,7 +969,7 @@ export class Game {
   }
 
   private updatePowerUps(effectiveDelta: number): void {
-    const collected = this.powerUpManager.update(effectiveDelta, this.ants);
+    const collected = this.powerUpManager.update(effectiveDelta, this.ants, this.terrain);
     if (collected) {
       soundManager.playPowerUpCollect();
       this.buffIndicator.update(collected.ant);
