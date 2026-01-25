@@ -7,6 +7,7 @@ import {
   SmokeRing,
   ChargeParticle,
   FireParticle,
+  DamageNumber,
 } from '../types/AntParticleTypes.ts';
 
 // Interface for the ant data needed by the renderer
@@ -25,12 +26,16 @@ export interface AntRenderData {
   hitReactionTime: number;
   hitReactionX: number;
   hitReactionY: number;
+  squashStretch: number;
+  painTime: number;
+  painIntensity: number;
   smokeParticles: SmokeParticle[];
   muzzleParticles: MuzzleParticle[];
   sparkParticles: SparkParticle[];
   smokeRings: SmokeRing[];
   chargeParticles: ChargeParticle[];
   fireParticles: FireParticle[];
+  damageNumbers: DamageNumber[];
 }
 
 export class AntRenderer {
@@ -131,9 +136,25 @@ export class AntRenderer {
       ctx.fill();
     }
 
-    // === PIXEL ART ANT RENDERING ===
+    // === PIXEL ART ANT RENDERING WITH SQUASH/STRETCH ===
+    // Apply squash/stretch transform around the ant's base position
+    if (ant.squashStretch !== 1.0) {
+      ctx.save();
+      // Transform origin at ant's feet
+      ctx.translate(ant.x, ant.y);
+      // Squash vertically, stretch horizontally to maintain volume
+      const scaleX = 1.0 + (1.0 - ant.squashStretch) * 0.5;
+      const scaleY = ant.squashStretch;
+      ctx.scale(scaleX, scaleY);
+      ctx.translate(-ant.x, -ant.y);
+    }
+
     // Render directly to main canvas using pixel blocks
     this.renderAntBody(ctx, ant, isCurrentPlayer, chargingPower);
+
+    if (ant.squashStretch !== 1.0) {
+      ctx.restore();
+    }
 
     // Draw spark particles
     for (const particle of ant.sparkParticles) {
@@ -160,6 +181,41 @@ export class AntRenderer {
     }
 
     ctx.restore();
+
+    // Draw floating damage numbers (outside main transform so they stay upright)
+    this.renderDamageNumbers(ctx, ant.damageNumbers);
+  }
+
+  // Render floating damage numbers
+  renderDamageNumbers(ctx: CanvasRenderingContext2D, damageNumbers: DamageNumber[]): void {
+    for (const dmg of damageNumbers) {
+      const alpha = Math.min(1, dmg.life / (dmg.maxLife * 0.3));
+      const scale = dmg.scale;
+
+      ctx.save();
+      ctx.translate(dmg.x, dmg.y);
+      ctx.scale(scale, scale);
+
+      // Text styling
+      ctx.font = 'bold 14px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Outline/shadow for readability
+      ctx.strokeStyle = `rgba(0, 0, 0, ${alpha * 0.8})`;
+      ctx.lineWidth = 3;
+      ctx.strokeText(`-${dmg.value}`, 0, 0);
+
+      // Fill color: red for critical, orange for normal
+      if (dmg.isCritical) {
+        ctx.fillStyle = `rgba(255, 50, 50, ${alpha})`;
+      } else {
+        ctx.fillStyle = `rgba(255, 150, 50, ${alpha})`;
+      }
+      ctx.fillText(`-${dmg.value}`, 0, 0);
+
+      ctx.restore();
+    }
   }
 
   // Render the ant body as pixel art (2x2 pixels for more detail)
@@ -395,12 +451,26 @@ export class AntRenderer {
     this.drawPixel(ctx, baseX + direction * 10, baseY - 15 + breatheOffset, helmetDark);
 
     // === EYE (large cartoon eye) ===
-    // Eye white
-    this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
-    this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#fff');
-    this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#fff');
-    // Pupil
-    this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#111');
+    if (ant.painTime > 0 && ant.painIntensity > 0.5) {
+      // X-shaped pain eye for high damage
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#ff3333');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#ff3333');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, '#ff3333');
+      this.drawPixel(ctx, baseX + direction * 10, baseY - 14 + breatheOffset, '#ff3333');
+    } else if (ant.painTime > 0) {
+      // Squinted eye for lower damage - horizontal line
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#333');
+      this.drawPixel(ctx, baseX + direction * 10, baseY - 14 + breatheOffset, '#fff');
+    } else {
+      // Normal eye
+      // Eye white
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#fff');
+      // Pupil
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#111');
+    }
 
     // === ANTENNAE ===
     const antennaWave = Math.floor(Math.sin(ant.idleTime * 4) * 1);

@@ -187,6 +187,18 @@ export interface DissolveParticle {
   color: string;
 }
 
+// Floating damage number
+export interface DamageNumber {
+  x: number;
+  y: number;
+  vy: number;
+  value: number;
+  life: number;
+  maxLife: number;
+  scale: number;
+  isCritical: boolean;
+}
+
 // Ant particle state - contains all particle arrays
 export interface AntParticleState {
   smokeParticles: SmokeParticle[];
@@ -206,6 +218,7 @@ export interface AntParticleState {
   emberParticles: EmberParticle[];
   lightningArcs: LightningArc[];
   dissolveParticles: DissolveParticle[];
+  damageNumbers: DamageNumber[];
 }
 
 // Death animation state

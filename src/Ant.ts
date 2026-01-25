@@ -37,6 +37,7 @@ import {
   EmberParticle,
   LightningArc,
   DissolveParticle,
+  DamageNumber,
 } from './types/AntParticleTypes.ts';
 import { AntRenderer, AntRenderData } from './rendering/AntRenderer.ts';
 import { AntDeathSystem, AntDeathData, DeathParticles } from './systems/AntDeathSystem.ts';
@@ -93,6 +94,17 @@ export class Ant {
   private hitReactionX: number;
   private hitReactionY: number;
   private hitReactionTime: number;
+
+  // Squash/stretch animation (spring physics)
+  private squashStretch: number;
+  private squashVelocity: number;
+
+  // Pain expression
+  private painTime: number;
+  private painIntensity: number;
+
+  // Floating damage numbers
+  private damageNumbers: DamageNumber[];
 
   // Critical damage fire particles
   private fireParticles: FireParticle[];
@@ -174,6 +186,11 @@ export class Ant {
     this.hitReactionX = 0;
     this.hitReactionY = 0;
     this.hitReactionTime = 0;
+    this.squashStretch = 1.0;
+    this.squashVelocity = 0;
+    this.painTime = 0;
+    this.painIntensity = 0;
+    this.damageNumbers = [];
     this.fireParticles = [];
     this.fireSpawnTimer = 0;
     this.glowPulse = 0;
@@ -364,6 +381,7 @@ export class Ant {
   }
 
   takeDamage(amount: number): void {
+    const originalAmount = amount;
     const shieldBuff = this.activeBuffs.find(b => b.type === 'shield');
     if (shieldBuff) {
       const absorbed = Math.min(amount, shieldBuff.remainingValue);
@@ -387,6 +405,29 @@ export class Ant {
     this.hitReactionX = (Math.random() - 0.5) * knockbackStrength * 2;
     this.hitReactionY = -knockbackStrength;
     this.hitReactionTime = 0.2;
+
+    // Squash effect - compress vertically on impact
+    // Higher damage = more squash
+    const squashAmount = Math.min(0.4, amount / 80);
+    this.squashStretch = 1.0 - squashAmount;
+    this.squashVelocity = squashAmount * 8; // Spring velocity for bounce back
+
+    // Pain expression - duration and intensity based on damage
+    this.painTime = 0.3 + Math.min(0.5, amount / 50);
+    this.painIntensity = Math.min(1.0, amount / 30);
+
+    // Spawn floating damage number
+    const isCritical = originalAmount >= 25;
+    this.damageNumbers.push({
+      x: this.x + (Math.random() - 0.5) * 20,
+      y: this.y - TANK_HEIGHT - 10,
+      vy: -60 - Math.random() * 20,
+      value: Math.round(originalAmount),
+      life: 1.2,
+      maxLife: 1.2,
+      scale: isCritical ? 1.5 : 1.0,
+      isCritical: isCritical,
+    });
 
     const sparkCount = Math.min(12, Math.floor(amount / 5) + 4);
     for (let i = 0; i < sparkCount; i++) {
@@ -562,6 +603,44 @@ export class Ant {
         this.hitReactionY = 0;
       }
     }
+
+    // Squash/stretch spring animation
+    if (this.squashStretch !== 1.0 || this.squashVelocity !== 0) {
+      // Spring physics: accelerate toward rest position (1.0)
+      const springForce = (1.0 - this.squashStretch) * 120;
+      this.squashVelocity += springForce * deltaTime;
+      this.squashVelocity *= 0.85; // Damping
+      this.squashStretch += this.squashVelocity * deltaTime;
+
+      // Clamp and settle
+      if (Math.abs(this.squashStretch - 1.0) < 0.01 && Math.abs(this.squashVelocity) < 0.1) {
+        this.squashStretch = 1.0;
+        this.squashVelocity = 0;
+      }
+    }
+
+    // Pain expression timer
+    if (this.painTime > 0) {
+      this.painTime -= deltaTime;
+      if (this.painTime <= 0) {
+        this.painTime = 0;
+        this.painIntensity = 0;
+      }
+    }
+
+    // Update damage numbers
+    for (const dmgNum of this.damageNumbers) {
+      dmgNum.y += dmgNum.vy * deltaTime;
+      dmgNum.vy += 40 * deltaTime; // Slight gravity to slow the rise
+      dmgNum.life -= deltaTime;
+      // Scale pops up then shrinks
+      const lifeRatio = dmgNum.life / dmgNum.maxLife;
+      if (lifeRatio > 0.8) {
+        // Pop in
+        dmgNum.scale = dmgNum.isCritical ? 1.5 + (1 - (lifeRatio - 0.8) / 0.2) * 0.3 : 1.0 + (1 - (lifeRatio - 0.8) / 0.2) * 0.2;
+      }
+    }
+    this.damageNumbers = this.damageNumbers.filter(d => d.life > 0);
 
     if (this.isAlive && this.health < 25) {
       this.fireSpawnTimer -= deltaTime;
@@ -908,12 +987,16 @@ export class Ant {
       hitReactionTime: this.hitReactionTime,
       hitReactionX: this.hitReactionX,
       hitReactionY: this.hitReactionY,
+      squashStretch: this.squashStretch,
+      painTime: this.painTime,
+      painIntensity: this.painIntensity,
       smokeParticles: this.smokeParticles,
       muzzleParticles: this.muzzleParticles,
       sparkParticles: this.sparkParticles,
       smokeRings: this.smokeRings,
       chargeParticles: this.chargeParticles,
       fireParticles: this.fireParticles,
+      damageNumbers: this.damageNumbers,
     };
 
     this.renderer.render(ctx, renderData, isCurrentPlayer, chargingPower);
