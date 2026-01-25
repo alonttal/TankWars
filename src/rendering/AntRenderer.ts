@@ -9,6 +9,7 @@ import {
   FireParticle,
   DamageNumber,
 } from '../types/AntParticleTypes.ts';
+import { ActiveBuff } from '../powerups/PowerUpTypes.ts';
 
 // Interface for the ant data needed by the renderer
 export interface AntRenderData {
@@ -36,6 +37,7 @@ export interface AntRenderData {
   chargeParticles: ChargeParticle[];
   fireParticles: FireParticle[];
   damageNumbers: DamageNumber[];
+  activeBuffs: ActiveBuff[];
 }
 
 export class AntRenderer {
@@ -101,6 +103,13 @@ export class AntRenderer {
           dark: '#1A1A2A',
           length: 16, // Long barrel
         };
+      case 'napalm':
+        return {
+          color: '#3A3A3A', // Dark grey mortar
+          light: '#5A5A5A',
+          dark: '#1A1A1A',
+          length: 10, // Shorter mortar tube
+        };
       default: // standard
         return {
           color: '#4A5D23', // Green
@@ -155,6 +164,9 @@ export class AntRenderer {
     if (ant.squashStretch !== 1.0) {
       ctx.restore();
     }
+
+    // Draw buff effects (auras, shields, etc.)
+    this.renderBuffEffects(ctx, ant);
 
     // Draw spark particles
     for (const particle of ant.sparkParticles) {
@@ -336,6 +348,44 @@ export class AntRenderer {
         this.drawPixel(ctx, scopeX + 1, scopeY - 3, '#444');
         // Stock
         this.drawPixel(ctx, shoulderX - Math.round(Math.cos(angleRad) * 2), shoulderY + Math.round(Math.sin(angleRad) * 2), weaponVisual.dark);
+      } else if (ant.selectedWeapon === 'napalm') {
+        // Bouncing Bomb Launcher: wide mortar tube with visible bomb
+        for (let i = 0; i < weaponLen; i++) {
+          const px = shoulderX + Math.round(Math.cos(angleRad) * i);
+          const py = shoulderY - Math.round(Math.sin(angleRad) * i);
+          // Wide tube (4 pixels thick)
+          this.drawPixel(ctx, px, py - 2, weaponVisual.light);
+          this.drawPixel(ctx, px, py - 1, weaponVisual.color);
+          this.drawPixel(ctx, px, py, weaponVisual.color);
+          this.drawPixel(ctx, px, py + 1, weaponVisual.color);
+          this.drawPixel(ctx, px, py + 2, weaponVisual.dark);
+        }
+        // Wide flared muzzle
+        const muzzleX = shoulderX + Math.round(Math.cos(angleRad) * weaponLen);
+        const muzzleY = shoulderY - Math.round(Math.sin(angleRad) * weaponLen);
+        this.drawPixel(ctx, muzzleX, muzzleY - 3, weaponVisual.light);
+        this.drawPixel(ctx, muzzleX, muzzleY - 2, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY - 1, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY + 1, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY + 2, '#1a1a1a');
+        this.drawPixel(ctx, muzzleX, muzzleY + 3, weaponVisual.dark);
+        // Visible bomb inside tube (black round bomb with orange fuse spark)
+        const bombX = shoulderX + Math.round(Math.cos(angleRad) * (weaponLen * 0.6));
+        const bombY = shoulderY - Math.round(Math.sin(angleRad) * (weaponLen * 0.6));
+        this.drawPixel(ctx, bombX, bombY - 1, '#1a1a1a'); // Bomb top
+        this.drawPixel(ctx, bombX, bombY, '#2a2a2a');     // Bomb middle
+        this.drawPixel(ctx, bombX, bombY + 1, '#1a1a1a'); // Bomb bottom
+        // Fuse spark (flickering)
+        const sparkFlicker = Math.sin(ant.idleTime * 20) > 0;
+        if (sparkFlicker) {
+          this.drawPixel(ctx, bombX - 1, bombY - 2, '#FF6600'); // Orange spark
+        } else {
+          this.drawPixel(ctx, bombX - 1, bombY - 2, '#FFAA00'); // Yellow spark
+        }
+        // Base/stock
+        this.drawPixel(ctx, shoulderX - Math.round(Math.cos(angleRad) * 2), shoulderY + Math.round(Math.sin(angleRad) * 2), weaponVisual.dark);
+        this.drawPixel(ctx, shoulderX - Math.round(Math.cos(angleRad) * 3), shoulderY + Math.round(Math.sin(angleRad) * 3), weaponVisual.dark);
       } else {
         // Standard: normal tube
         for (let i = 0; i < weaponLen; i++) {
@@ -642,5 +692,186 @@ export class AntRenderer {
     ctx.stroke();
 
     ctx.restore();
+  }
+
+  // Render visual effects for active buffs
+  renderBuffEffects(ctx: CanvasRenderingContext2D, ant: AntRenderData): void {
+    if (!ant.activeBuffs || ant.activeBuffs.length === 0) return;
+
+    const centerX = ant.x;
+    const centerY = ant.y - 20; // Center on ant body
+    const pulse = 0.7 + Math.sin(ant.idleTime * 4) * 0.3;
+
+    for (const buff of ant.activeBuffs) {
+      switch (buff.type) {
+        case 'shield':
+          this.renderShieldEffect(ctx, centerX, centerY, ant.idleTime, pulse, buff.remainingValue);
+          break;
+        case 'damage_boost':
+          this.renderDamageBoostEffect(ctx, centerX, centerY, ant.idleTime, pulse);
+          break;
+        case 'double_shot':
+          this.renderDoubleShotEffect(ctx, centerX, centerY, ant.idleTime, pulse);
+          break;
+      }
+    }
+  }
+
+  // Blue shield bubble effect
+  renderShieldEffect(ctx: CanvasRenderingContext2D, x: number, y: number, time: number, pulse: number, remainingHP: number): void {
+    const radius = 28 + pulse * 4;
+
+    // Outer glow
+    const gradient = ctx.createRadialGradient(x, y, radius * 0.5, x, y, radius * 1.3);
+    gradient.addColorStop(0, 'rgba(68, 136, 255, 0)');
+    gradient.addColorStop(0.7, 'rgba(68, 136, 255, 0.1)');
+    gradient.addColorStop(1, 'rgba(68, 136, 255, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(x, y, radius * 1.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Shield bubble
+    ctx.strokeStyle = `rgba(68, 136, 255, ${0.4 + pulse * 0.3})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner highlight
+    ctx.strokeStyle = `rgba(150, 200, 255, ${0.2 + pulse * 0.2})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(x - 5, y - 5, radius * 0.7, -Math.PI * 0.3, Math.PI * 0.3);
+    ctx.stroke();
+
+    // Hexagonal pattern (animated)
+    ctx.strokeStyle = `rgba(68, 136, 255, ${0.15 + pulse * 0.1})`;
+    ctx.lineWidth = 1;
+    const hexCount = 6;
+    for (let i = 0; i < hexCount; i++) {
+      const angle = (i / hexCount) * Math.PI * 2 + time * 0.5;
+      const hx = x + Math.cos(angle) * radius * 0.6;
+      const hy = y + Math.sin(angle) * radius * 0.6;
+      ctx.beginPath();
+      for (let j = 0; j < 6; j++) {
+        const ha = (j / 6) * Math.PI * 2;
+        const px = hx + Math.cos(ha) * 6;
+        const py = hy + Math.sin(ha) * 6;
+        if (j === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    // Shield HP indicator (small text)
+    ctx.fillStyle = `rgba(150, 200, 255, ${0.6 + pulse * 0.4})`;
+    ctx.font = 'bold 8px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${remainingHP}`, x, y + radius + 10);
+  }
+
+  // Red damage boost aura effect
+  renderDamageBoostEffect(ctx: CanvasRenderingContext2D, x: number, y: number, time: number, pulse: number): void {
+    const radius = 24;
+
+    // Pulsing red aura
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    gradient.addColorStop(0, 'rgba(255, 68, 68, 0)');
+    gradient.addColorStop(0.5, `rgba(255, 68, 68, ${0.1 * pulse})`);
+    gradient.addColorStop(1, 'rgba(255, 68, 68, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rotating sword/flame particles
+    const particleCount = 4;
+    for (let i = 0; i < particleCount; i++) {
+      const angle = (i / particleCount) * Math.PI * 2 + time * 3;
+      const dist = 18 + Math.sin(time * 6 + i) * 4;
+      const px = x + Math.cos(angle) * dist;
+      const py = y + Math.sin(angle) * dist;
+
+      // Flame-like particle
+      ctx.fillStyle = `rgba(255, ${100 + Math.floor(pulse * 100)}, 50, ${0.6 + pulse * 0.4})`;
+      ctx.beginPath();
+      ctx.arc(px, py, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Glow
+      ctx.fillStyle = `rgba(255, 200, 100, ${0.3 * pulse})`;
+      ctx.beginPath();
+      ctx.arc(px, py, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Small sword icon above head
+    ctx.fillStyle = `rgba(255, 68, 68, ${0.7 + pulse * 0.3})`;
+    const iconY = y - 25;
+    // Blade
+    ctx.fillRect(x - 1, iconY - 6, 2, 8);
+    // Crossguard
+    ctx.fillRect(x - 4, iconY + 1, 8, 2);
+    // Handle
+    ctx.fillRect(x - 1, iconY + 2, 2, 3);
+  }
+
+  // Gold double shot effect
+  renderDoubleShotEffect(ctx: CanvasRenderingContext2D, x: number, y: number, time: number, pulse: number): void {
+    const radius = 22;
+
+    // Golden aura
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    gradient.addColorStop(0, 'rgba(255, 215, 0, 0)');
+    gradient.addColorStop(0.6, `rgba(255, 215, 0, ${0.12 * pulse})`);
+    gradient.addColorStop(1, 'rgba(255, 215, 0, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Orbiting double arrow particles
+    const orbitRadius = 16;
+    for (let i = 0; i < 2; i++) {
+      const angle = (i / 2) * Math.PI * 2 + time * 2.5;
+      const px = x + Math.cos(angle) * orbitRadius;
+      const py = y + Math.sin(angle) * orbitRadius;
+
+      // Arrow shape pointing outward
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle + Math.PI / 2);
+
+      ctx.fillStyle = `rgba(255, 215, 0, ${0.7 + pulse * 0.3})`;
+      ctx.beginPath();
+      ctx.moveTo(0, -5);
+      ctx.lineTo(3, 0);
+      ctx.lineTo(1, 0);
+      ctx.lineTo(1, 4);
+      ctx.lineTo(-1, 4);
+      ctx.lineTo(-1, 0);
+      ctx.lineTo(-3, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    // Sparkle effect
+    const sparkleCount = 3;
+    for (let i = 0; i < sparkleCount; i++) {
+      const angle = time * 4 + (i / sparkleCount) * Math.PI * 2;
+      const dist = 12 + Math.sin(time * 8 + i * 2) * 6;
+      const sx = x + Math.cos(angle) * dist;
+      const sy = y + Math.sin(angle) * dist;
+      const sparkSize = 2 + Math.sin(time * 10 + i) * 1;
+
+      ctx.fillStyle = `rgba(255, 255, 200, ${0.5 + pulse * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sparkSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }

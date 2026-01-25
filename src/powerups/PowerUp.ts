@@ -223,10 +223,11 @@ export class PowerUp {
     ctx.translate(this.x, bobY);
     ctx.scale(pulse, pulse);
 
-    // Outer glow
+    // Outer glow - use power-up color
+    const glowColor = this.config.color;
     const glowGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, halfSize * 2);
-    glowGradient.addColorStop(0, 'rgba(78, 203, 113, 0.5)');
-    glowGradient.addColorStop(0.5, 'rgba(78, 203, 113, 0.2)');
+    glowGradient.addColorStop(0, `${glowColor}80`);
+    glowGradient.addColorStop(0.5, `${glowColor}33`);
     glowGradient.addColorStop(1, 'transparent');
     ctx.fillStyle = glowGradient;
     ctx.beginPath();
@@ -253,9 +254,6 @@ export class PowerUp {
     const crateMain = '#8B5A2B';
     const crateLight = '#A67B5B';
     const crateDark = '#5D3A1A';
-    const crossMain = '#4ECB71';
-    const crossLight = '#6EEB91';
-    const crossDark = '#2EA351';
     const metalBand = '#6B6B6B';
     const metalHighlight = '#8A8A8A';
 
@@ -290,78 +288,14 @@ export class PowerUp {
     pixel(8, 1, crateLight);
     pixel(9, 1, crateDark);
 
-    // Rows 2-7 - main body with cross
-    // Row 2
-    pixel(0, 2, crateDark);
-    pixel(1, 2, crateMain);
-    pixel(2, 2, crateMain);
-    pixel(3, 2, crateMain);
-    pixel(4, 2, crossLight);
-    pixel(5, 2, crossMain);
-    pixel(6, 2, crateMain);
-    pixel(7, 2, crateMain);
-    pixel(8, 2, crateMain);
-    pixel(9, 2, crateDark);
-
-    // Row 3
-    pixel(0, 3, crateDark);
-    pixel(1, 3, crateMain);
-    pixel(2, 3, crateMain);
-    pixel(3, 3, crateMain);
-    pixel(4, 3, crossMain);
-    pixel(5, 3, crossDark);
-    pixel(6, 3, crateMain);
-    pixel(7, 3, crateMain);
-    pixel(8, 3, crateMain);
-    pixel(9, 3, crateDark);
-
-    // Row 4 - horizontal part of cross
-    pixel(0, 4, crateDark);
-    pixel(1, 4, crateMain);
-    pixel(2, 4, crossLight);
-    pixel(3, 4, crossMain);
-    pixel(4, 4, crossMain);
-    pixel(5, 4, crossMain);
-    pixel(6, 4, crossMain);
-    pixel(7, 4, crossDark);
-    pixel(8, 4, crateMain);
-    pixel(9, 4, crateDark);
-
-    // Row 5 - horizontal part of cross
-    pixel(0, 5, crateDark);
-    pixel(1, 5, crateMain);
-    pixel(2, 5, crossMain);
-    pixel(3, 5, crossDark);
-    pixel(4, 5, crossDark);
-    pixel(5, 5, crossDark);
-    pixel(6, 5, crossDark);
-    pixel(7, 5, crossDark);
-    pixel(8, 5, crateMain);
-    pixel(9, 5, crateDark);
-
-    // Row 6
-    pixel(0, 6, crateDark);
-    pixel(1, 6, crateMain);
-    pixel(2, 6, crateMain);
-    pixel(3, 6, crateMain);
-    pixel(4, 6, crossMain);
-    pixel(5, 6, crossDark);
-    pixel(6, 6, crateMain);
-    pixel(7, 6, crateMain);
-    pixel(8, 6, crateMain);
-    pixel(9, 6, crateDark);
-
-    // Row 7
-    pixel(0, 7, crateDark);
-    pixel(1, 7, crateMain);
-    pixel(2, 7, crateMain);
-    pixel(3, 7, crateMain);
-    pixel(4, 7, crossMain);
-    pixel(5, 7, crossDark);
-    pixel(6, 7, crateMain);
-    pixel(7, 7, crateMain);
-    pixel(8, 7, crateMain);
-    pixel(9, 7, crateDark);
+    // Rows 2-7 - main body (base, icon drawn on top)
+    for (let row = 2; row <= 7; row++) {
+      pixel(0, row, crateDark);
+      for (let col = 1; col <= 8; col++) {
+        pixel(col, row, crateMain);
+      }
+      pixel(9, row, crateDark);
+    }
 
     // Row 8 - bottom of crate
     pixel(0, 8, crateDark);
@@ -386,6 +320,123 @@ export class PowerUp {
     pixel(7, 9, metalHighlight);
     pixel(8, 9, metalBand);
     pixel(9, 9, crateDark);
+
+    // Draw type-specific icon
+    this.drawPowerUpIcon(ctx, startX, startY, scale);
+  }
+
+  private drawPowerUpIcon(ctx: CanvasRenderingContext2D, startX: number, startY: number, scale: number): void {
+    const pixel = (x: number, y: number, color: string) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(startX + x * scale, startY + y * scale, scale, scale);
+    };
+
+    const icon = this.config.icon;
+
+    if (icon === 'cross') {
+      // Health cross (green)
+      const crossMain = '#4ECB71';
+      const crossLight = '#6EEB91';
+      const crossDark = '#2EA351';
+
+      // Vertical bar
+      pixel(4, 2, crossLight);
+      pixel(5, 2, crossMain);
+      pixel(4, 3, crossMain);
+      pixel(5, 3, crossDark);
+      pixel(4, 6, crossMain);
+      pixel(5, 6, crossDark);
+      pixel(4, 7, crossMain);
+      pixel(5, 7, crossDark);
+
+      // Horizontal bar
+      pixel(2, 4, crossLight);
+      pixel(3, 4, crossMain);
+      pixel(4, 4, crossMain);
+      pixel(5, 4, crossMain);
+      pixel(6, 4, crossMain);
+      pixel(7, 4, crossDark);
+      pixel(2, 5, crossMain);
+      pixel(3, 5, crossDark);
+      pixel(4, 5, crossDark);
+      pixel(5, 5, crossDark);
+      pixel(6, 5, crossDark);
+      pixel(7, 5, crossDark);
+    } else if (icon === 'sword') {
+      // Damage boost sword (red)
+      const swordMain = '#FF4444';
+      const swordLight = '#FF6666';
+      const swordDark = '#CC2222';
+      const handleMain = '#8B4513';
+      const handleLight = '#A0522D';
+
+      // Blade pointing up-right
+      pixel(7, 2, swordLight);
+      pixel(6, 3, swordMain);
+      pixel(7, 3, swordDark);
+      pixel(5, 4, swordMain);
+      pixel(6, 4, swordDark);
+      pixel(4, 5, swordMain);
+      pixel(5, 5, swordDark);
+      // Crossguard
+      pixel(2, 5, handleLight);
+      pixel(3, 5, handleMain);
+      pixel(4, 6, handleMain);
+      pixel(5, 6, handleMain);
+      // Handle
+      pixel(3, 6, handleMain);
+      pixel(2, 7, handleLight);
+      pixel(3, 7, handleMain);
+    } else if (icon === 'shield') {
+      // Shield (blue)
+      const shieldMain = '#4488FF';
+      const shieldLight = '#66AAFF';
+      const shieldDark = '#2266DD';
+
+      // Shield shape
+      pixel(3, 2, shieldLight);
+      pixel(4, 2, shieldLight);
+      pixel(5, 2, shieldLight);
+      pixel(6, 2, shieldLight);
+      pixel(2, 3, shieldLight);
+      pixel(3, 3, shieldMain);
+      pixel(4, 3, shieldMain);
+      pixel(5, 3, shieldMain);
+      pixel(6, 3, shieldMain);
+      pixel(7, 3, shieldDark);
+      pixel(2, 4, shieldMain);
+      pixel(3, 4, shieldMain);
+      pixel(4, 4, shieldMain);
+      pixel(5, 4, shieldMain);
+      pixel(6, 4, shieldMain);
+      pixel(7, 4, shieldDark);
+      pixel(3, 5, shieldMain);
+      pixel(4, 5, shieldMain);
+      pixel(5, 5, shieldMain);
+      pixel(6, 5, shieldDark);
+      pixel(4, 6, shieldMain);
+      pixel(5, 6, shieldDark);
+      pixel(4, 7, shieldDark);
+      pixel(5, 7, shieldDark);
+    } else if (icon === 'double_arrow') {
+      // Double shot arrows (yellow/gold)
+      const arrowMain = '#FFD700';
+      const arrowLight = '#FFEA00';
+      const arrowDark = '#DAA520';
+
+      // Left arrow
+      pixel(2, 4, arrowLight);
+      pixel(3, 3, arrowMain);
+      pixel(3, 4, arrowMain);
+      pixel(3, 5, arrowMain);
+      pixel(4, 4, arrowDark);
+      // Right arrow
+      pixel(5, 4, arrowLight);
+      pixel(6, 3, arrowMain);
+      pixel(6, 4, arrowMain);
+      pixel(6, 5, arrowMain);
+      pixel(7, 4, arrowDark);
+    }
   }
 
   // Check if powerup and its particles are fully gone

@@ -1,6 +1,6 @@
 import { MAP_WIDTH } from '../constants.ts';
 import { PowerUp } from './PowerUp.ts';
-import { PowerUpType, POWERUP_CONFIGS } from './PowerUpTypes.ts';
+import { PowerUpType, POWERUP_CONFIGS, POWERUP_ORDER, getTotalSpawnWeight } from './PowerUpTypes.ts';
 import { Terrain } from '../Terrain.ts';
 import { Ant } from '../Ant.ts';
 
@@ -75,8 +75,9 @@ export class PowerUpManager {
       }
 
       if (!tooClose) {
-        // Always spawn health (only type available)
-        const powerUp = new PowerUp(x, terrain, 'health');
+        // Select a random power-up type based on weights
+        const selectedType = this.selectRandomPowerUpType();
+        const powerUp = new PowerUp(x, terrain, selectedType);
         this.powerUps.push(powerUp);
         this.fallingPowerUp = powerUp;
         return powerUp;
@@ -112,9 +113,11 @@ export class PowerUpManager {
   }
 
   // Force spawn a specific power-up (for testing)
-  spawnPowerUp(x: number, terrain: Terrain, type: PowerUpType): void {
+  spawnPowerUp(x: number, terrain: Terrain, type: PowerUpType): PowerUp {
     const powerUp = new PowerUp(x, terrain, type);
     this.powerUps.push(powerUp);
+    this.fallingPowerUp = powerUp;
+    return powerUp;
   }
 
   update(deltaTime: number, ants: Ant[]): { ant: Ant; type: PowerUpType } | null {
@@ -136,12 +139,57 @@ export class PowerUpManager {
     return collectedInfo;
   }
 
+  private selectRandomPowerUpType(): PowerUpType {
+    const totalWeight = getTotalSpawnWeight();
+    let random = Math.random() * totalWeight;
+
+    for (const type of POWERUP_ORDER) {
+      const weight = POWERUP_CONFIGS[type].spawnWeight;
+      if (random < weight) {
+        return type;
+      }
+      random -= weight;
+    }
+
+    // Fallback to health if something goes wrong
+    return 'health';
+  }
+
   private applyPowerUp(ant: Ant, type: PowerUpType): void {
     const config = POWERUP_CONFIGS[type];
 
-    // Only health type is available
-    if (type === 'health') {
-      ant.heal(config.value);
+    switch (type) {
+      case 'health':
+        // Instant heal
+        ant.heal(config.value);
+        break;
+
+      case 'damage_boost':
+        // Add buff with shot-based duration
+        ant.addBuff({
+          type: 'damage_boost',
+          remainingValue: config.value, // Number of shots
+          duration: config.duration,
+        });
+        break;
+
+      case 'shield':
+        // Add buff with HP value to absorb
+        ant.addBuff({
+          type: 'shield',
+          remainingValue: config.value, // HP to absorb
+          duration: null,
+        });
+        break;
+
+      case 'double_shot':
+        // Add buff with shot count
+        ant.addBuff({
+          type: 'double_shot',
+          remainingValue: config.value, // Number of shots
+          duration: config.duration,
+        });
+        break;
     }
   }
 

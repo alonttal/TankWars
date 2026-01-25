@@ -1,6 +1,6 @@
 // Weapon types and configurations
 
-export type WeaponType = 'standard' | 'bazooka' | 'shotgun' | 'sniper';
+export type WeaponType = 'standard' | 'bazooka' | 'shotgun' | 'sniper' | 'napalm';
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -114,10 +114,32 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
     gravityMultiplier: 0.05, // Nearly straight line
     requiresCharging: false, // Instant fire
   },
+  napalm: {
+    type: 'napalm',
+    name: 'Bouncing Bomb',
+    damage: 25,
+    explosionRadius: 45,
+    projectileSpeed: 0.85,
+    projectileSize: 1.2,
+    ammo: 3,
+    maxBounces: 0,
+    clusterCount: 0,
+    clusterDamage: 0,
+    craterDepthMultiplier: 0.8,
+    burnDuration: 6.0, // 6 seconds of fire
+    burnDamagePerSecond: 8, // 8 damage per second
+    trailColor: { r: 255, g: 100, b: 0 }, // Orange trail
+    description: 'Creates persistent fire',
+    keyBinding: '5',
+    pelletCount: 1,
+    spreadAngle: 0,
+    gravityMultiplier: 1.1, // Slightly heavier
+    requiresCharging: true,
+  },
 };
 
 // Get all weapon types in order
-export const WEAPON_ORDER: WeaponType[] = ['standard', 'bazooka', 'shotgun', 'sniper'];
+export const WEAPON_ORDER: WeaponType[] = ['standard', 'bazooka', 'shotgun', 'sniper', 'napalm'];
 
 // Default ammo for each weapon type when game starts
 export function getDefaultAmmo(): Map<WeaponType, number> {

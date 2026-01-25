@@ -91,6 +91,29 @@ export class BurnArea {
   }
 
   update(deltaTime: number, ants: Ant[], terrain: Terrain): void {
+    // Always update particles, even when inactive (to let them fade out)
+    // Update fire particles
+    for (const particle of this.fireParticles) {
+      particle.x += particle.vx * deltaTime;
+      particle.y += particle.vy * deltaTime;
+      particle.vy -= 30 * deltaTime; // Fire rises
+      particle.size *= 0.97;
+      particle.life -= deltaTime;
+    }
+    this.fireParticles = this.fireParticles.filter(p => p.life > 0);
+
+    // Update smoke particles
+    for (const particle of this.smokeParticles) {
+      particle.x += particle.vx * deltaTime;
+      particle.y += particle.vy * deltaTime;
+      particle.vy -= 15 * deltaTime; // Smoke rises slower
+      particle.vx *= 0.98;
+      particle.size += deltaTime * 15; // Expands
+      particle.alpha *= 0.98;
+      particle.life -= deltaTime;
+    }
+    this.smokeParticles = this.smokeParticles.filter(p => p.life > 0);
+
     if (!this.active) return;
 
     // Update remaining time
@@ -120,28 +143,6 @@ export class BurnArea {
         this.spawnSmokeParticle();
       }
     }
-
-    // Update fire particles
-    for (const particle of this.fireParticles) {
-      particle.x += particle.vx * deltaTime;
-      particle.y += particle.vy * deltaTime;
-      particle.vy -= 30 * deltaTime; // Fire rises
-      particle.size *= 0.97;
-      particle.life -= deltaTime;
-    }
-    this.fireParticles = this.fireParticles.filter(p => p.life > 0);
-
-    // Update smoke particles
-    for (const particle of this.smokeParticles) {
-      particle.x += particle.vx * deltaTime;
-      particle.y += particle.vy * deltaTime;
-      particle.vy -= 15 * deltaTime; // Smoke rises slower
-      particle.vx *= 0.98;
-      particle.size += deltaTime * 15; // Expands
-      particle.alpha *= 0.98;
-      particle.life -= deltaTime;
-    }
-    this.smokeParticles = this.smokeParticles.filter(p => p.life > 0);
 
     // Apply damage to ants in range
     this.damageTickTimer -= deltaTime;

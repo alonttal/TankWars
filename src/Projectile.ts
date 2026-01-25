@@ -345,6 +345,9 @@ export class Projectile {
         case 'sniper':
           this.renderSniperBullet(ctx);
           break;
+        case 'napalm':
+          this.renderNapalmCanister(ctx);
+          break;
         default:
           this.renderStandardShell(ctx);
       }
@@ -434,6 +437,43 @@ export class Projectile {
 
     this.drawPixelSprite(ctx, sprite, colors, pixelSize, -5, -1.5);
     this.drawProjectileGlow(ctx, '#FF6666', 6);
+  }
+
+  // Pixel art: Bouncing Bomb - classic round bomb with fuse
+  private renderNapalmCanister(ctx: CanvasRenderingContext2D): void {
+    const pixelSize = 2;
+    // Classic round bomb shape: 10x10 pixels
+    const sprite = [
+      [0, 0, 0, 0, 5, 5, 0, 0, 0, 0],
+      [0, 0, 0, 5, 4, 4, 5, 0, 0, 0],
+      [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+      [0, 1, 1, 2, 2, 1, 1, 1, 1, 0],
+      [0, 1, 2, 2, 1, 1, 1, 1, 1, 0],
+      [0, 1, 2, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+      [0, 0, 0, 1, 1, 1, 1, 0, 0, 0],
+    ];
+    const colors: Record<number, string> = {
+      0: '', // Transparent
+      1: '#1a1a1a', // Black bomb body
+      2: '#3a3a3a', // Highlight
+      3: '#5A5A5A', // Lighter highlight
+      4: '#8B4513', // Fuse (brown)
+      5: '#FF6600', // Fuse spark (orange)
+    };
+
+    this.drawPixelSprite(ctx, sprite, colors, pixelSize, -10, -10);
+
+    // Add flickering spark effect on the fuse
+    const sparkFlicker = Math.sin(this.time * 30) * 0.5 + 0.5;
+    ctx.fillStyle = `rgba(255, ${150 + sparkFlicker * 100}, 0, ${0.8 + sparkFlicker * 0.2})`;
+    ctx.beginPath();
+    ctx.arc(-10 + 5 * 2, -10 + 0.5 * 2, 3 + sparkFlicker * 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    this.drawProjectileGlow(ctx, '#FF6600', 16);
   }
 
   // Helper: Draw a pixel sprite from a 2D array

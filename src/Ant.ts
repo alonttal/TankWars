@@ -383,6 +383,31 @@ export class Ant {
   takeDamage(amount: number): void {
     const originalAmount = amount;
 
+    // Apply shield damage absorption first
+    amount = this.applyShieldDamage(amount);
+
+    // If shield absorbed all damage, still show visual feedback but don't reduce health
+    if (amount <= 0) {
+      // Show shield absorb effect
+      this.damageFlash = 0.15;
+
+      // Spawn shield spark particles
+      const sparkCount = Math.min(6, Math.floor(originalAmount / 10) + 2);
+      for (let i = 0; i < sparkCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 60 + Math.random() * 80;
+        this.sparkParticles.push({
+          x: this.x + (Math.random() - 0.5) * TANK_WIDTH * 0.5,
+          y: this.y - TANK_HEIGHT / 2,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 40,
+          life: 0.25 + Math.random() * 0.2,
+          size: 2 + Math.random() * 2,
+        });
+      }
+      return;
+    }
+
     this.health -= amount;
     this.damageFlash = 0.3;
 
@@ -885,21 +910,72 @@ export class Ant {
   }
 
   getDamageMultiplier(): number {
-    // No damage boost power-up anymore, always return 1.0
+    // Check for damage_boost buff
+    const buff = this.getBuff('damage_boost');
+    if (buff && buff.remainingValue > 0) {
+      return 1.5; // 50% damage increase
+    }
     return 1.0;
   }
 
   consumeDamageBoost(): void {
-    // No damage boost power-up anymore, no-op
+    // Decrement damage boost buff shots remaining
+    const buff = this.getBuff('damage_boost');
+    if (buff) {
+      buff.remainingValue--;
+      if (buff.remainingValue <= 0) {
+        this.removeBuff('damage_boost');
+      }
+    }
   }
 
   hasDoubleShot(): boolean {
-    // No double shot power-up anymore
-    return false;
+    // Check for double_shot buff
+    const buff = this.getBuff('double_shot');
+    return buff !== undefined && buff.remainingValue > 0;
   }
 
   consumeDoubleShot(): void {
-    // No double shot power-up anymore, no-op
+    // Decrement double shot buff shots remaining
+    const buff = this.getBuff('double_shot');
+    if (buff) {
+      buff.remainingValue--;
+      if (buff.remainingValue <= 0) {
+        this.removeBuff('double_shot');
+      }
+    }
+  }
+
+  // Apply shield damage absorption, returns remaining damage after shield
+  applyShieldDamage(damage: number): number {
+    const buff = this.getBuff('shield');
+    if (!buff || buff.remainingValue <= 0) {
+      return damage; // No shield, full damage passes through
+    }
+
+    // Shield absorbs damage
+    if (buff.remainingValue >= damage) {
+      buff.remainingValue -= damage;
+      if (buff.remainingValue <= 0) {
+        this.removeBuff('shield');
+      }
+      return 0; // Shield absorbed all damage
+    } else {
+      // Shield partially absorbs damage
+      const absorbed = buff.remainingValue;
+      this.removeBuff('shield');
+      return damage - absorbed; // Return remaining damage
+    }
+  }
+
+  hasShield(): boolean {
+    const buff = this.getBuff('shield');
+    return buff !== undefined && buff.remainingValue > 0;
+  }
+
+  getShieldHP(): number {
+    const buff = this.getBuff('shield');
+    return buff ? buff.remainingValue : 0;
   }
 
   heal(amount: number): void {
@@ -951,6 +1027,7 @@ export class Ant {
       chargeParticles: this.chargeParticles,
       fireParticles: this.fireParticles,
       damageNumbers: this.damageNumbers,
+      activeBuffs: this.activeBuffs,
     };
 
     this.renderer.render(ctx, renderData, isCurrentPlayer, chargingPower);

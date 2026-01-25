@@ -336,6 +336,7 @@ export class Game {
       case '2':
       case '3':
       case '4':
+      case '5':
         this.selectWeaponByKey(e.key);
         break;
       case 'k':
@@ -347,6 +348,20 @@ export class Game {
             ant.takeDamage(999);
             this.endTurn();
           }
+        }
+        break;
+      case 'p':
+      case 'P':
+        // Debug: Force spawn a power-up for testing
+        {
+          const x = 100 + Math.random() * (MAP_WIDTH - 200);
+          const types: Array<'health' | 'damage_boost' | 'shield' | 'double_shot'> = ['health', 'damage_boost', 'shield', 'double_shot'];
+          const randomType = types[Math.floor(Math.random() * types.length)];
+          this.powerUpManager.spawnPowerUp(x, this.terrain, randomType);
+          console.log(`[Debug] Spawned power-up: ${randomType} at x=${Math.round(x)}`);
+          // Transition to falling state so camera follows and animation plays
+          this.state = 'POWERUP_FALLING';
+          this.fireButton.disabled = true;
         }
         break;
     }
@@ -702,7 +717,7 @@ export class Game {
     }
 
     // Update power-ups
-    if (this.state === 'PLAYING' || this.state === 'FIRING') {
+    if (this.state === 'PLAYING' || this.state === 'FIRING' || this.state === 'POWERUP_FALLING') {
       this.updatePowerUps(effectiveDelta);
     }
   }
@@ -902,6 +917,18 @@ export class Game {
     soundManager.playExplosion();
 
     projectile.owner.consumeDamageBoost();
+
+    // Spawn burn area if weapon has burn duration (napalm)
+    if (weaponConfig.burnDuration > 0) {
+      const burnArea = new BurnArea(
+        hitX,
+        hitY,
+        weaponConfig.explosionRadius * 1.2,
+        weaponConfig.burnDuration,
+        weaponConfig.burnDamagePerSecond
+      );
+      this.burnAreas.push(burnArea);
+    }
 
     this.effects.triggerHitstop(0.08);
     const shakeIntensity = 10 + (weaponConfig.explosionRadius / 35) * 8;
