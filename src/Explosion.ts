@@ -1,4 +1,4 @@
-import { EXPLOSION_RADIUS, EXPLOSION_DAMAGE_RADIUS } from './constants.ts';
+import { EXPLOSION_RADIUS, EXPLOSION_DAMAGE_RADIUS, KNOCKBACK_DAMAGE_MULTIPLIER, KNOCKBACK_MIN_FORCE, KNOCKBACK_MAX_FORCE, KNOCKBACK_DAMAGE_THRESHOLD } from './constants.ts';
 import { Ant } from './Ant.ts';
 import { Terrain } from './Terrain.ts';
 
@@ -196,7 +196,7 @@ export class Explosion {
     // Damage terrain
     terrain.createCrater(this.x, this.y, EXPLOSION_RADIUS);
 
-    // Damage ants
+    // Damage ants and apply knockback
     for (const ant of ants) {
       if (!ant.isAlive) continue;
 
@@ -209,12 +209,18 @@ export class Explosion {
         const damageMultiplier = 1 - (distance / EXPLOSION_DAMAGE_RADIUS);
         const damage = Math.floor(50 * damageMultiplier + 10);
         ant.takeDamage(damage);
+
+        // Apply knockback if damage is significant enough
+        if (damage >= KNOCKBACK_DAMAGE_THRESHOLD) {
+          const knockbackForce = this.calculateKnockbackForce(damage, distance, EXPLOSION_DAMAGE_RADIUS);
+          ant.applyKnockback(this.x, this.y, knockbackForce);
+        }
       }
     }
 
-    // Update ant positions after terrain deformation
+    // Update ant positions after terrain deformation (only for grounded ants)
     for (const ant of ants) {
-      if (ant.isAlive) {
+      if (ant.isAlive && ant.isGrounded) {
         ant.updatePosition(terrain);
       }
     }
@@ -235,7 +241,7 @@ export class Explosion {
     // Calculate damage radius based on explosion radius
     const damageRadius = explosionRadius * 1.15;
 
-    // Damage ants
+    // Damage ants and apply knockback
     for (const ant of ants) {
       if (!ant.isAlive) continue;
 
@@ -248,15 +254,35 @@ export class Explosion {
         const damageMultiplier = 1 - (distance / damageRadius);
         const damage = Math.floor(baseDamage * damageMultiplier + baseDamage * 0.2);
         ant.takeDamage(damage);
+
+        // Apply knockback if damage is significant enough
+        if (damage >= KNOCKBACK_DAMAGE_THRESHOLD) {
+          const knockbackForce = this.calculateKnockbackForce(damage, distance, damageRadius);
+          ant.applyKnockback(this.x, this.y, knockbackForce);
+        }
       }
     }
 
-    // Update ant positions after terrain deformation
+    // Update ant positions after terrain deformation (only for grounded ants)
     for (const ant of ants) {
-      if (ant.isAlive) {
+      if (ant.isAlive && ant.isGrounded) {
         ant.updatePosition(terrain);
       }
     }
+  }
+
+  // Calculate knockback force based on damage and distance
+  private calculateKnockbackForce(damage: number, distance: number, damageRadius: number): number {
+    // Distance factor: stronger knockback when closer to explosion
+    const distanceFactor = 1 - (distance / damageRadius);
+
+    // Calculate force based on damage and distance
+    let force = damage * KNOCKBACK_DAMAGE_MULTIPLIER * distanceFactor;
+
+    // Clamp to min/max
+    force = Math.max(KNOCKBACK_MIN_FORCE, Math.min(KNOCKBACK_MAX_FORCE, force));
+
+    return force;
   }
 
   update(deltaTime: number): void {

@@ -9,7 +9,11 @@ import {
   MAX_MOVEMENT_ENERGY,
   MOVEMENT_ENERGY_COST,
   JUMP_ENERGY_COST,
-  MAX_SLOPE_ANGLE
+  MAX_SLOPE_ANGLE,
+  KNOCKBACK_MIN_FORCE,
+  KNOCKBACK_MAX_FORCE,
+  FALL_DAMAGE_VELOCITY_THRESHOLD,
+  FALL_DAMAGE_MULTIPLIER
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
 import { WeaponType, getDefaultAmmo, WEAPON_CONFIGS } from './weapons/WeaponTypes.ts';
@@ -492,6 +496,13 @@ export class Ant {
       const groundHeight = terrain.getHeightAt(this.x);
       const groundY = MAP_HEIGHT - groundHeight;
       if (newY >= groundY) {
+        // Check for fall damage before landing
+        if (this.velocityY > FALL_DAMAGE_VELOCITY_THRESHOLD) {
+          const fallDamage = Math.floor((this.velocityY - FALL_DAMAGE_VELOCITY_THRESHOLD) * FALL_DAMAGE_MULTIPLIER);
+          if (fallDamage > 0) {
+            this.takeFallDamage(fallDamage);
+          }
+        }
         this.y = groundY;
         this.velocityY = 0;
         this.isGrounded = true;
@@ -588,6 +599,90 @@ export class Ant {
       this.deathAnimationStage = 0; // Not started yet
       this.deathPopY = 0;
       this.deathPopVy = -120; // Initial upward pop velocity
+    }
+  }
+
+  // Apply knockback force from an explosion
+  applyKnockback(explosionX: number, explosionY: number, force: number): void {
+    if (!this.isAlive) return;
+
+    // Clamp force to min/max
+    force = Math.max(KNOCKBACK_MIN_FORCE, Math.min(KNOCKBACK_MAX_FORCE, force));
+
+    // Calculate direction from explosion to ant (with upward bias)
+    const dx = this.x - explosionX;
+    const dy = (this.y - 10) - explosionY; // Ant center
+
+    // Normalize and apply upward bias
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance === 0) return;
+
+    let dirX = dx / distance;
+    let dirY = dy / distance;
+
+    // Add upward bias - knockback should always push up somewhat
+    dirY = Math.min(dirY, -0.3); // Ensure at least 30% upward component
+
+    // Re-normalize after bias
+    const newLen = Math.sqrt(dirX * dirX + dirY * dirY);
+    dirX /= newLen;
+    dirY /= newLen;
+
+    // Apply velocity impulse
+    this.velocityX = dirX * force;
+    this.velocityY = dirY * force;
+    this.isGrounded = false;
+  }
+
+  // Take fall damage without triggering knockback (to avoid infinite loops)
+  private takeFallDamage(amount: number): void {
+    // Check for shield buff
+    const shieldBuff = this.activeBuffs.find(b => b.type === 'shield');
+    if (shieldBuff) {
+      const absorbed = Math.min(amount, shieldBuff.remainingValue);
+      shieldBuff.remainingValue -= absorbed;
+      amount -= absorbed;
+
+      if (shieldBuff.remainingValue <= 0) {
+        this.activeBuffs = this.activeBuffs.filter(b => b.type !== 'shield');
+      }
+
+      if (amount <= 0) {
+        this.damageFlash = 0.1;
+        return;
+      }
+    }
+
+    this.health -= amount;
+    this.damageFlash = 0.2; // Shorter flash for fall damage
+
+    // Spawn fewer spark particles for fall damage
+    const sparkCount = Math.min(6, Math.floor(amount / 8) + 2);
+    for (let i = 0; i < sparkCount; i++) {
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.5; // Mostly upward
+      const speed = 40 + Math.random() * 60;
+      this.sparkParticles.push({
+        x: this.x + (Math.random() - 0.5) * TANK_WIDTH * 0.5,
+        y: this.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.2 + Math.random() * 0.2,
+        size: 1.5 + Math.random() * 1.5,
+      });
+    }
+
+    if (this.health <= 0) {
+      this.health = 0;
+      this.isAlive = false;
+
+      // Randomly select death type
+      const deathTypes: DeathType[] = ['explode', 'ghost', 'splatter', 'disintegrate', 'vaporize'];
+      this.deathType = deathTypes[Math.floor(Math.random() * deathTypes.length)];
+
+      this.deathDelayTimer = 0.4;
+      this.deathAnimationStage = 0;
+      this.deathPopY = 0;
+      this.deathPopVy = -120;
     }
   }
 

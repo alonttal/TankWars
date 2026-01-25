@@ -69,6 +69,14 @@ export const PROJECTILE_RADIUS = 4;
 export const EXPLOSION_RADIUS = 35;
 export const EXPLOSION_DAMAGE_RADIUS = 40;
 
+// Knockback physics
+export const KNOCKBACK_DAMAGE_MULTIPLIER = 3.0;
+export const KNOCKBACK_MIN_FORCE = 50;
+export const KNOCKBACK_MAX_FORCE = 350;
+export const KNOCKBACK_DAMAGE_THRESHOLD = 10;
+export const FALL_DAMAGE_VELOCITY_THRESHOLD = 200;
+export const FALL_DAMAGE_MULTIPLIER = 0.1;
+
 // Terrain
 export const TERRAIN_COLOR = '#8B4513';
 export const SKY_COLOR = '#87CEEB';

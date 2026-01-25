@@ -750,10 +750,11 @@ export class Game {
   }
 
   private updateFiring(effectiveDelta: number): void {
-    // Continue applying physics so the shooter lands if still in the air
-    const currentAnt = this.ants[this.currentPlayerIndex];
-    if (currentAnt && currentAnt.isAlive) {
-      currentAnt.updateMovement(effectiveDelta, this.terrain);
+    // Update ALL ants that are airborne (knocked back by explosions)
+    for (const ant of this.ants) {
+      if (ant.isAlive && !ant.isGrounded) {
+        ant.updateMovement(effectiveDelta, this.terrain);
+      }
     }
 
     const newProjectiles: Projectile[] = [];
