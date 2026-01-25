@@ -194,8 +194,8 @@ export class Terrain {
     this.windParticles = [];
     this.ambientDust = [];
     this.currentWind = 0;
-    this.sunX = BASE_WIDTH * 0.85;
-    this.sunY = 60;
+    this.sunX = MAP_WIDTH * 0.85;
+    this.sunY = 150;
     this.sunPulse = 0;
     this.scorchMarks = [];
     this.theme = TERRAIN_THEMES[0];
@@ -322,8 +322,8 @@ export class Terrain {
     this.ambientDust = [];
     for (let i = 0; i < 30; i++) {
       this.ambientDust.push({
-        x: Math.random() * BASE_WIDTH,
-        y: Math.random() * BASE_HEIGHT * 0.7,
+        x: Math.random() * MAP_WIDTH,
+        y: Math.random() * MAP_HEIGHT * 0.5,
         size: 1 + Math.random() * 2,
         opacity: 0.2 + Math.random() * 0.3,
         floatSpeed: 0.5 + Math.random() * 1,
@@ -432,10 +432,10 @@ export class Terrain {
     const cloudCount = 6 + Math.floor(Math.random() * 4);
     for (let i = 0; i < cloudCount; i++) {
       this.clouds.push({
-        x: Math.random() * BASE_WIDTH,
-        y: 20 + Math.random() * 80,
-        width: 40 + Math.random() * 80,
-        height: 20 + Math.random() * 30,
+        x: Math.random() * MAP_WIDTH,
+        y: 80 + Math.random() * 200,
+        width: 60 + Math.random() * 100,
+        height: 30 + Math.random() * 40,
         speed: 5 + Math.random() * 10,
         opacity: 0.3 + Math.random() * 0.4,
       });
@@ -452,8 +452,8 @@ export class Terrain {
     // Regenerate clouds and dust for new terrain
     this.generateClouds();
     this.generateAmbientDust();
-    this.sunX = BASE_WIDTH * (0.7 + Math.random() * 0.2);
-    this.sunY = 40 + Math.random() * 40;
+    this.sunX = MAP_WIDTH * (0.6 + Math.random() * 0.3);
+    this.sunY = 120 + Math.random() * 80;
     this.scorchMarks = [];
 
     // Clear the bitmap
@@ -841,12 +841,12 @@ export class Terrain {
     for (const cloud of this.clouds) {
       cloud.x += (cloud.speed + wind * 0.3) * deltaTime;
       // Wrap around when cloud goes off screen
-      if (cloud.x > BASE_WIDTH + cloud.width) {
+      if (cloud.x > MAP_WIDTH + cloud.width) {
         cloud.x = -cloud.width;
-        cloud.y = 20 + Math.random() * 80;
+        cloud.y = 80 + Math.random() * 200;
       } else if (cloud.x < -cloud.width) {
-        cloud.x = BASE_WIDTH + cloud.width;
-        cloud.y = 20 + Math.random() * 80;
+        cloud.x = MAP_WIDTH + cloud.width;
+        cloud.y = 80 + Math.random() * 200;
       }
     }
 
@@ -888,12 +888,12 @@ export class Terrain {
       dust.y += Math.sin(dust.floatPhase) * 0.3;
       dust.x += (dust.driftSpeed + wind * 0.1) * deltaTime;
 
-      if (dust.x > BASE_WIDTH + 10) {
+      if (dust.x > MAP_WIDTH + 10) {
         dust.x = -10;
-        dust.y = Math.random() * BASE_HEIGHT * 0.7;
+        dust.y = Math.random() * MAP_HEIGHT * 0.5;
       } else if (dust.x < -10) {
-        dust.x = BASE_WIDTH + 10;
-        dust.y = Math.random() * BASE_HEIGHT * 0.7;
+        dust.x = MAP_WIDTH + 10;
+        dust.y = Math.random() * MAP_HEIGHT * 0.5;
       }
     }
   }
