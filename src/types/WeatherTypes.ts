@@ -60,6 +60,46 @@ export interface LightningBolt {
   maxLife: number;
 }
 
+// Terrain weather overlay state
+export interface TerrainOverlayState {
+  type: 'mud' | 'snow';
+  accumulation: Uint8Array;  // Per surface cell (0-255)
+  dirty: boolean;
+}
+
+// Damaging lightning strike that can hurt ants
+export interface DamagingLightningStrike {
+  x: number;
+  y: number;
+  segments: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+  opacity: number;
+  life: number;
+  maxLife: number;
+  damage: number;
+  radius: number;
+  hasDealtDamage: boolean;
+  createsCrater: boolean;
+  craterRadius: number;
+}
+
+// Telegraph warning before lightning strike
+export interface LightningTelegraph {
+  x: number;
+  y: number;
+  life: number;
+  maxLife: number;
+  pulsePhase: number;
+}
+
+// Request for cinematic camera focus
+export interface CinematicFocusRequest {
+  x: number;
+  y: number;
+  duration: number;
+  zoomLevel: number;
+  shakeIntensity: number;
+}
+
 // Terrain compatibility map
 export const TERRAIN_WEATHER_COMPATIBILITY: Record<string, WeatherType[]> = {
   'Grassland': ['clear', 'rain', 'fog', 'snow'],

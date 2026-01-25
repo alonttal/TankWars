@@ -97,6 +97,10 @@ export class Game {
   private hitDelayTimer: number;
   private lastHitPosition: { x: number; y: number } | null;
 
+  // Lightning strike cinematic state
+  private lightningCinematicTimer: number;
+  private lightningFocusPosition: { x: number; y: number } | null;
+
   // Weapon and Power-up systems
   private projectiles: Projectile[];
   private burnAreas: BurnArea[];
@@ -154,6 +158,10 @@ export class Game {
     this.lastTime = 0;
     this.hitDelayTimer = 0;
     this.lastHitPosition = null;
+
+    // Lightning strike cinematic state
+    this.lightningCinematicTimer = 0;
+    this.lightningFocusPosition = null;
 
     // Initialize extracted systems
     this.camera = new CameraSystem();
@@ -270,7 +278,7 @@ export class Game {
         this.state = 'PAUSED';
       } else if (this.state === 'PAUSED') {
         this.resumeGame();
-      } else if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'AI_MOVING' || this.state === 'POWERUP_FALLING') {
+      } else if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'AI_MOVING' || this.state === 'POWERUP_FALLING' || this.state === 'LIGHTNING_STRIKE') {
         this.pauseGame();
       }
       return;
@@ -670,6 +678,17 @@ export class Game {
     // Update weather system
     this.weather.update(effectiveDelta, this.wind);
 
+    // Update terrain weather overlays
+    const activeWeather = this.weather.getTransitionProgress() >= 0.5
+      ? this.weather.getTargetConfig().type
+      : this.weather.getCurrentConfig().type;
+    this.terrain.updateWeatherOverlays(effectiveDelta, activeWeather);
+
+    // Update damaging lightning animations (only during LIGHTNING_STRIKE state)
+    if (this.state === 'LIGHTNING_STRIKE') {
+      this.weather.updateDamagingLightning(effectiveDelta);
+    }
+
     // Update menu renderer animations
     this.menuRenderer.update(deltaTime, this.state, this.menuItems.length);
 
@@ -735,6 +754,11 @@ export class Game {
     // Power-up falling state
     if (this.state === 'POWERUP_FALLING') {
       this.updatePowerUpFalling(effectiveDelta);
+    }
+
+    // Lightning strike state
+    if (this.state === 'LIGHTNING_STRIKE') {
+      this.updateLightningStrike(effectiveDelta);
     }
 
     // Update power-ups
@@ -1026,6 +1050,99 @@ export class Game {
     }
   }
 
+  private updateLightningStrike(deltaTime: number): void {
+    this.lightningCinematicTimer -= deltaTime;
+
+    // Keep camera focused on strike location
+    if (this.lightningFocusPosition) {
+      this.camera.focusOnProjectile(this.lightningFocusPosition.x, this.lightningFocusPosition.y);
+    }
+
+    // Check for lightning damage application
+    const damageResult = this.weather.applyLightningDamage(this.ants, this.terrain);
+    if (damageResult) {
+      // Trigger effects for the strike
+      this.camera.triggerScreenShake(18);
+      this.effects.triggerScreenFlash('#FFFFFF', 0.6);
+
+      // Show damage floating texts
+      for (const hit of damageResult.hits) {
+        const isCritical = hit.damage >= 30;
+        this.effects.addFloatingText({
+          x: hit.ant.x,
+          y: hit.ant.y - 40,
+          text: isCritical ? `ZAP! -${hit.damage}` : `-${hit.damage}`,
+          color: isCritical ? '#FFD700' : '#FFFF00',
+          life: isCritical ? 2.0 : 1.5,
+          maxLife: isCritical ? 2.0 : 1.5,
+          vy: isCritical ? -50 : -30,
+          scale: isCritical ? 1.5 : 1.0,
+          isCritical,
+        });
+      }
+    }
+
+    // Check if cinematic is complete
+    if (this.lightningCinematicTimer <= 0 && !this.weather.hasActiveLightningEvent()) {
+      this.endLightningCinematic();
+    }
+  }
+
+  private endLightningCinematic(): void {
+    this.lightningFocusPosition = null;
+
+    // Check for deaths caused by lightning
+    const team0Alive = this.getAliveAntsForTeam(0);
+    const team1Alive = this.getAliveAntsForTeam(1);
+
+    if (team0Alive.length === 0 || team1Alive.length === 0) {
+      // Game over due to lightning kill
+      if (team0Alive.length > 0) {
+        this.winningTeam = 0;
+        this.winner = team0Alive[0];
+      } else if (team1Alive.length > 0) {
+        this.winningTeam = 1;
+        this.winner = team1Alive[0];
+      } else {
+        this.winningTeam = null;
+        this.winner = null;
+      }
+
+      this.state = 'GAME_OVER';
+      this.fireButton.disabled = true;
+      this.weaponSelector.hide();
+      this.buffIndicator.hide();
+
+      if (this.winner) {
+        this.effects.spawnConfetti();
+        this.effects.spawnInitialFireworks();
+      }
+
+      const isVictory = this.gameMode === 'single' ? this.winningTeam === 0 : true;
+      soundManager.playGameOver(isVictory);
+      return;
+    }
+
+    // Lightning happened between turns - now proceed to next player
+    this.finishTurnTransition();
+  }
+
+  private finishTurnTransition(): void {
+    this.nextPlayer();
+
+    const currentAnt = this.ants[this.currentPlayerIndex];
+    this.weaponSelector.update(currentAnt);
+    this.buffIndicator.update(currentAnt);
+    this.weaponSelector.setEnabled(true);
+
+    if (this.isAITurn()) {
+      this.startAITurn();
+    } else {
+      this.state = 'PLAYING';
+      this.fireButton.disabled = false;
+    }
+  }
+
   private proceedToNextTurn(): void {
     // Base wind change
     this.wind += (Math.random() - 0.5) * 10;
@@ -1041,19 +1158,23 @@ export class Game {
 
     this.updateWindDisplay();
 
-    this.nextPlayer();
-
-    const currentAnt = this.ants[this.currentPlayerIndex];
-    this.weaponSelector.update(currentAnt);
-    this.buffIndicator.update(currentAnt);
-    this.weaponSelector.setEnabled(true);
-
-    if (this.isAITurn()) {
-      this.startAITurn();
-    } else {
-      this.state = 'PLAYING';
-      this.fireButton.disabled = false;
+    // Check for lightning strike between turns
+    if (this.weather.trySpawnLightningStrike(this.terrain)) {
+      // Lightning is spawning - enter lightning state and set up cinematic
+      const focusRequest = this.weather.consumePendingCinematicFocus();
+      if (focusRequest) {
+        this.state = 'LIGHTNING_STRIKE';
+        this.lightningCinematicTimer = focusRequest.duration;
+        this.lightningFocusPosition = { x: focusRequest.x, y: focusRequest.y };
+        this.fireButton.disabled = true;
+        this.weaponSelector.setEnabled(false);
+        this.camera.focusOnProjectile(focusRequest.x, focusRequest.y);
+      }
+      return;
     }
+
+    // No lightning - proceed directly to next player
+    this.finishTurnTransition();
   }
 
   private render(): void {
@@ -1093,6 +1214,7 @@ export class Game {
     this.camera.applyTransform(this.ctx, 1.0);
 
     this.terrain.render(this.ctx);
+    this.terrain.renderOverlays(this.ctx);
 
     for (let i = 0; i < this.ants.length; i++) {
       const isCurrentAndPlaying = i === this.currentPlayerIndex &&

@@ -1,4 +1,4 @@
-export type GameState = 'MENU' | 'INTRO_PAN' | 'PLAYING' | 'AI_THINKING' | 'AI_MOVING' | 'FIRING' | 'POWERUP_FALLING' | 'PAUSED' | 'SETTINGS' | 'GAME_OVER';
+export type GameState = 'MENU' | 'INTRO_PAN' | 'PLAYING' | 'AI_THINKING' | 'AI_MOVING' | 'FIRING' | 'POWERUP_FALLING' | 'LIGHTNING_STRIKE' | 'PAUSED' | 'SETTINGS' | 'GAME_OVER';
 export type GameMode = 'single' | 'multi';
 
 export interface MenuItem {

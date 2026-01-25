@@ -1,5 +1,6 @@
 import { MAP_WIDTH, MAP_HEIGHT, BASE_WIDTH, BASE_HEIGHT } from '../constants.ts';
 import { WeatherSystem } from '../systems/WeatherSystem.ts';
+import { DamagingLightningStrike, LightningTelegraph } from '../types/WeatherTypes.ts';
 
 export class WeatherRenderer {
   // Animation time for procedural effects
@@ -196,12 +197,12 @@ export class WeatherRenderer {
     for (const flake of bgFlakes) {
       ctx.save();
       ctx.translate(flake.x * 0.97, flake.y); // Slight parallax
-      ctx.globalAlpha = flake.opacity * 0.3;
+      ctx.globalAlpha = flake.opacity * 0.5;
 
-      const size = flake.size * 0.4; // Much smaller in background
+      const size = flake.size * 0.6; // Smaller in background but still visible
 
-      // Simple dot for distant flakes
-      ctx.fillStyle = 'rgba(220, 230, 245, 0.6)';
+      // Soft glowing dot for distant flakes
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
       ctx.beginPath();
       ctx.arc(0, 0, size, 0, Math.PI * 2);
       ctx.fill();
@@ -217,21 +218,21 @@ export class WeatherRenderer {
       ctx.save();
       ctx.translate(flake.x, flake.y);
       ctx.rotate(flake.rotation);
-      ctx.globalAlpha = flake.opacity * 0.8;
+      ctx.globalAlpha = flake.opacity;
 
-      // Smaller flakes overall
-      const size = flake.size * 0.6;
+      // Full size flakes in foreground
+      const size = flake.size;
 
-      // Subtle glow
-      const sparkle = 0.6 + Math.sin(this.animationTime * 2 + flake.wobblePhase) * 0.4;
-      ctx.fillStyle = `rgba(220, 235, 255, ${0.15 * sparkle})`;
+      // Outer glow
+      const sparkle = 0.7 + Math.sin(this.animationTime * 2 + flake.wobblePhase) * 0.3;
+      ctx.fillStyle = `rgba(200, 220, 255, ${0.25 * sparkle})`;
       ctx.beginPath();
-      ctx.arc(0, 0, size * 1.8, 0, Math.PI * 2);
+      ctx.arc(0, 0, size * 1.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Simple 6-pointed star - thinner lines
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.lineWidth = Math.max(0.3, size * 0.1);
+      // 6-pointed star with thicker lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.lineWidth = Math.max(1, size * 0.15);
       ctx.lineCap = 'round';
 
       for (let i = 0; i < 6; i++) {
@@ -241,26 +242,27 @@ export class WeatherRenderer {
         ctx.lineTo(Math.cos(angle) * size, Math.sin(angle) * size);
         ctx.stroke();
 
-        // Single small branch per arm
+        // Branches on each arm
         const branchDist = size * 0.55;
-        const branchLen = size * 0.25;
+        const branchLen = size * 0.35;
         const branchX = Math.cos(angle) * branchDist;
         const branchY = Math.sin(angle) * branchDist;
 
+        ctx.lineWidth = Math.max(0.5, size * 0.1);
         ctx.beginPath();
         ctx.moveTo(branchX, branchY);
-        ctx.lineTo(branchX + Math.cos(angle + 0.6) * branchLen, branchY + Math.sin(angle + 0.6) * branchLen);
+        ctx.lineTo(branchX + Math.cos(angle + 0.5) * branchLen, branchY + Math.sin(angle + 0.5) * branchLen);
         ctx.stroke();
         ctx.beginPath();
         ctx.moveTo(branchX, branchY);
-        ctx.lineTo(branchX + Math.cos(angle - 0.6) * branchLen, branchY + Math.sin(angle - 0.6) * branchLen);
+        ctx.lineTo(branchX + Math.cos(angle - 0.5) * branchLen, branchY + Math.sin(angle - 0.5) * branchLen);
         ctx.stroke();
       }
 
-      // Center dot
+      // Bright center dot
       ctx.fillStyle = '#FFFFFF';
       ctx.beginPath();
-      ctx.arc(0, 0, size * 0.12, 0, Math.PI * 2);
+      ctx.arc(0, 0, size * 0.2, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.restore();
@@ -527,6 +529,7 @@ export class WeatherRenderer {
 
   // ===== LIGHTNING =====
   private renderLightning(ctx: CanvasRenderingContext2D, weather: WeatherSystem): void {
+    // Render decorative lightning bolts
     for (const bolt of weather.lightning) {
       ctx.save();
       ctx.globalAlpha = bolt.opacity;
@@ -561,6 +564,141 @@ export class WeatherRenderer {
 
       ctx.beginPath();
       for (const segment of bolt.segments) {
+        ctx.moveTo(segment.x1, segment.y1);
+        ctx.lineTo(segment.x2, segment.y2);
+      }
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // Render lightning telegraphs (warning circles)
+    this.renderLightningTelegraphs(ctx, weather.lightningTelegraphs);
+
+    // Render damaging lightning strikes (brighter, more dramatic)
+    this.renderDamagingStrikes(ctx, weather.damagingStrikes);
+  }
+
+  // Render telegraph warning circles before lightning strikes
+  private renderLightningTelegraphs(ctx: CanvasRenderingContext2D, telegraphs: LightningTelegraph[]): void {
+    for (const telegraph of telegraphs) {
+      const progress = 1 - (telegraph.life / telegraph.maxLife);
+      const pulseAmount = Math.sin(telegraph.pulsePhase) * 0.3 + 0.7;
+      const baseRadius = 40 + progress * 20; // Grows as it nears strike
+
+      ctx.save();
+
+      // Outer warning glow
+      const outerGlow = ctx.createRadialGradient(
+        telegraph.x, telegraph.y, baseRadius * 0.5,
+        telegraph.x, telegraph.y, baseRadius * 1.5
+      );
+      outerGlow.addColorStop(0, `rgba(255, 255, 100, ${0.3 * pulseAmount})`);
+      outerGlow.addColorStop(0.5, `rgba(255, 200, 50, ${0.15 * pulseAmount})`);
+      outerGlow.addColorStop(1, 'rgba(255, 150, 0, 0)');
+
+      ctx.fillStyle = outerGlow;
+      ctx.beginPath();
+      ctx.arc(telegraph.x, telegraph.y, baseRadius * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pulsing dashed circle
+      ctx.strokeStyle = `rgba(255, 255, 100, ${0.8 * pulseAmount})`;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 5]);
+      ctx.lineDashOffset = -telegraph.pulsePhase * 5;
+
+      ctx.beginPath();
+      ctx.arc(telegraph.x, telegraph.y, baseRadius * pulseAmount, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Inner danger circle
+      ctx.setLineDash([]);
+      ctx.strokeStyle = `rgba(255, 100, 50, ${0.6 * pulseAmount})`;
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.arc(telegraph.x, telegraph.y, baseRadius * 0.5 * pulseAmount, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Center crosshair
+      const crossSize = 15 * pulseAmount;
+      ctx.strokeStyle = `rgba(255, 255, 200, ${0.9 * pulseAmount})`;
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.moveTo(telegraph.x - crossSize, telegraph.y);
+      ctx.lineTo(telegraph.x + crossSize, telegraph.y);
+      ctx.moveTo(telegraph.x, telegraph.y - crossSize);
+      ctx.lineTo(telegraph.x, telegraph.y + crossSize);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+  }
+
+  // Render damaging lightning strikes (brighter than decorative)
+  private renderDamagingStrikes(ctx: CanvasRenderingContext2D, strikes: DamagingLightningStrike[]): void {
+    for (const strike of strikes) {
+      ctx.save();
+      ctx.globalAlpha = strike.opacity;
+
+      // Ground impact glow
+      const impactGlow = ctx.createRadialGradient(
+        strike.x, strike.y, 0,
+        strike.x, strike.y, strike.radius * 1.5
+      );
+      impactGlow.addColorStop(0, `rgba(255, 255, 255, ${0.8 * strike.opacity})`);
+      impactGlow.addColorStop(0.3, `rgba(255, 255, 200, ${0.5 * strike.opacity})`);
+      impactGlow.addColorStop(0.6, `rgba(150, 180, 255, ${0.3 * strike.opacity})`);
+      impactGlow.addColorStop(1, 'rgba(100, 150, 255, 0)');
+
+      ctx.fillStyle = impactGlow;
+      ctx.beginPath();
+      ctx.arc(strike.x, strike.y, strike.radius * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bright outer glow (much brighter than decorative)
+      ctx.strokeStyle = 'rgba(200, 220, 255, 0.6)';
+      ctx.lineWidth = 16;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      ctx.beginPath();
+      for (const segment of strike.segments) {
+        ctx.moveTo(segment.x1, segment.y1);
+        ctx.lineTo(segment.x2, segment.y2);
+      }
+      ctx.stroke();
+
+      // Middle glow
+      ctx.strokeStyle = 'rgba(220, 235, 255, 0.8)';
+      ctx.lineWidth = 8;
+
+      ctx.beginPath();
+      for (const segment of strike.segments) {
+        ctx.moveTo(segment.x1, segment.y1);
+        ctx.lineTo(segment.x2, segment.y2);
+      }
+      ctx.stroke();
+
+      // Bright white core
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 3;
+
+      ctx.beginPath();
+      for (const segment of strike.segments) {
+        ctx.moveTo(segment.x1, segment.y1);
+        ctx.lineTo(segment.x2, segment.y2);
+      }
+      ctx.stroke();
+
+      // Hot white inner core
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = 1.5;
+
+      ctx.beginPath();
+      for (const segment of strike.segments) {
         ctx.moveTo(segment.x1, segment.y1);
         ctx.lineTo(segment.x2, segment.y2);
       }

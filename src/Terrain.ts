@@ -193,6 +193,18 @@ export class Terrain {
   // Color lookup table for depth bands (0-150 depth values)
   private colorLUT: Uint8Array | null = null;
 
+  // Weather overlay accumulation (1D arrays tracking surface coverage)
+  private mudAccumulation: Uint8Array;
+  private snowAccumulation: Uint8Array;
+  private mudFractionalAccumulator: number = 0;
+  private snowFractionalAccumulator: number = 0;
+  private mudOverlayCache: OffscreenCanvas | null = null;
+  private mudOverlayCacheCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private snowOverlayCache: OffscreenCanvas | null = null;
+  private snowOverlayCacheCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private mudOverlayDirty: boolean = true;
+  private snowOverlayDirty: boolean = true;
+
   constructor() {
     this.terrainBitmap = new Uint8Array(this.bitmapWidth * this.bitmapHeight);
     this.surfaceYCache = new Int16Array(this.bitmapWidth);
@@ -210,6 +222,9 @@ export class Terrain {
     this.terrainCacheCtx = null;
     this.terrainDirty = true;
     this.perm = this.generatePermutationTable();
+    // Initialize weather overlay accumulation arrays (one cell per bitmap X)
+    this.mudAccumulation = new Uint8Array(this.bitmapWidth);
+    this.snowAccumulation = new Uint8Array(this.bitmapWidth);
     this.generateClouds();
     this.generateAmbientDust();
   }
@@ -486,6 +501,18 @@ export class Terrain {
     this.terrainCache = new OffscreenCanvas(MAP_WIDTH, MAP_HEIGHT);
     this.terrainCacheCtx = this.terrainCache.getContext('2d');
     this.terrainDirty = true;
+
+    // Initialize weather overlay caches
+    this.mudAccumulation.fill(0);
+    this.snowAccumulation.fill(0);
+    this.mudFractionalAccumulator = 0;
+    this.snowFractionalAccumulator = 0;
+    this.mudOverlayCache = new OffscreenCanvas(MAP_WIDTH, MAP_HEIGHT);
+    this.mudOverlayCacheCtx = this.mudOverlayCache.getContext('2d');
+    this.snowOverlayCache = new OffscreenCanvas(MAP_WIDTH, MAP_HEIGHT);
+    this.snowOverlayCacheCtx = this.snowOverlayCache.getContext('2d');
+    this.mudOverlayDirty = true;
+    this.snowOverlayDirty = true;
   }
 
   // Stage 1: Generate base terrain with multi-octave Perlin noise
@@ -909,6 +936,157 @@ export class Terrain {
     }
   }
 
+  // Update weather overlays based on current weather
+  updateWeatherOverlays(deltaTime: number, weather: WeatherType): void {
+    // Overlay accumulation/fade rates
+    const MUD_ACCUMULATION_RATE = 30; // per second
+    const SNOW_ACCUMULATION_RATE = 25; // per second
+    const FADE_RATE = 15; // per second
+
+    // Accumulate fractional changes
+    this.mudFractionalAccumulator += (weather === 'rain' ? MUD_ACCUMULATION_RATE : -FADE_RATE) * deltaTime;
+    this.snowFractionalAccumulator += (weather === 'snow' ? SNOW_ACCUMULATION_RATE : -FADE_RATE) * deltaTime;
+
+    // Apply integer changes when accumulated enough
+    const mudDelta = Math.trunc(this.mudFractionalAccumulator);
+    const snowDelta = Math.trunc(this.snowFractionalAccumulator);
+
+    if (mudDelta !== 0) {
+      this.mudFractionalAccumulator -= mudDelta;
+      for (let bx = 0; bx < this.bitmapWidth; bx++) {
+        const surfaceBY = this.surfaceYCache[bx];
+        if (surfaceBY >= 0) {
+          const current = this.mudAccumulation[bx];
+          const newVal = Math.max(0, Math.min(255, current + mudDelta));
+          if (newVal !== current) {
+            this.mudAccumulation[bx] = newVal;
+            this.mudOverlayDirty = true;
+          }
+        }
+      }
+    }
+
+    if (snowDelta !== 0) {
+      this.snowFractionalAccumulator -= snowDelta;
+      for (let bx = 0; bx < this.bitmapWidth; bx++) {
+        const surfaceBY = this.surfaceYCache[bx];
+        if (surfaceBY >= 0) {
+          const current = this.snowAccumulation[bx];
+          const newVal = Math.max(0, Math.min(255, current + snowDelta));
+          if (newVal !== current) {
+            this.snowAccumulation[bx] = newVal;
+            this.snowOverlayDirty = true;
+          }
+        }
+      }
+    }
+  }
+
+  // Render weather overlays on top of terrain
+  renderOverlays(ctx: CanvasRenderingContext2D): void {
+    // Render mud overlay if any accumulation exists
+    if (this.mudOverlayDirty && this.mudOverlayCacheCtx) {
+      this.renderMudOverlayToCache();
+      this.mudOverlayDirty = false;
+    }
+    if (this.mudOverlayCache) {
+      ctx.drawImage(this.mudOverlayCache, 0, 0);
+    }
+
+    // Render snow overlay if any accumulation exists
+    if (this.snowOverlayDirty && this.snowOverlayCacheCtx) {
+      this.renderSnowOverlayToCache();
+      this.snowOverlayDirty = false;
+    }
+    if (this.snowOverlayCache) {
+      ctx.drawImage(this.snowOverlayCache, 0, 0);
+    }
+  }
+
+  private renderMudOverlayToCache(): void {
+    const ctx = this.mudOverlayCacheCtx;
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+    // Draw mud on surface - thicker layer that covers terrain top
+    for (let bx = 0; bx < this.bitmapWidth; bx++) {
+      const accumulation = this.mudAccumulation[bx];
+      if (accumulation <= 0) continue;
+
+      const surfaceBY = this.surfaceYCache[bx];
+      if (surfaceBY < 0) continue;
+
+      const x = bx * TERRAIN_SCALE;
+      const y = surfaceBY * TERRAIN_SCALE;
+      const alpha = (accumulation / 255) * 0.85;
+      const thickness = 2 + (accumulation / 255) * 6; // 2-8 pixels thick
+
+      // Draw mud layer at surface
+      ctx.fillStyle = `rgba(101, 67, 33, ${alpha})`;
+      ctx.fillRect(x, y - 1, TERRAIN_SCALE, thickness);
+
+      // Darker edge at top
+      ctx.fillStyle = `rgba(70, 45, 20, ${alpha * 0.5})`;
+      ctx.fillRect(x, y - 1, TERRAIN_SCALE, 1);
+    }
+  }
+
+  private renderSnowOverlayToCache(): void {
+    const ctx = this.snowOverlayCacheCtx;
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+    // Draw snow on surface - fluffy layer on top
+    for (let bx = 0; bx < this.bitmapWidth; bx++) {
+      const accumulation = this.snowAccumulation[bx];
+      if (accumulation <= 0) continue;
+
+      const surfaceBY = this.surfaceYCache[bx];
+      if (surfaceBY < 0) continue;
+
+      const x = bx * TERRAIN_SCALE;
+      const y = surfaceBY * TERRAIN_SCALE;
+      const alpha = (accumulation / 255) * 0.95;
+      const thickness = 3 + (accumulation / 255) * 8; // 3-11 pixels thick
+
+      // Draw snow cap above surface
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.fillRect(x, y - thickness + 2, TERRAIN_SCALE, thickness);
+
+      // Slight blue tint at bottom edge
+      ctx.fillStyle = `rgba(200, 220, 255, ${alpha * 0.3})`;
+      ctx.fillRect(x, y, TERRAIN_SCALE, 2);
+    }
+  }
+
+  // Clear overlay accumulation in a crater area
+  private clearOverlaysInCrater(centerX: number, radius: number): void {
+    const startBX = Math.max(0, Math.floor((centerX - radius) / TERRAIN_SCALE));
+    const endBX = Math.min(this.bitmapWidth - 1, Math.ceil((centerX + radius) / TERRAIN_SCALE));
+
+    for (let bx = startBX; bx <= endBX; bx++) {
+      if (this.mudAccumulation[bx] > 0) {
+        this.mudAccumulation[bx] = 0;
+        this.mudOverlayDirty = true;
+      }
+      if (this.snowAccumulation[bx] > 0) {
+        this.snowAccumulation[bx] = 0;
+        this.snowOverlayDirty = true;
+      }
+    }
+  }
+
+  // Getters for external access
+  getSurfaceYCache(): Int16Array {
+    return this.surfaceYCache;
+  }
+
+  getBitmapWidth(): number {
+    return this.bitmapWidth;
+  }
+
   // Create explosion crater - carve circular hole through bitmap
   createCrater(centerX: number, centerY: number, radius: number, depthMultiplier: number = 1.0): void {
     const isDigger = depthMultiplier > 2.0;
@@ -954,6 +1132,9 @@ export class Terrain {
     const startBX = Math.floor((centerX - searchRadius) / TERRAIN_SCALE);
     const endBX = Math.ceil((centerX + searchRadius) / TERRAIN_SCALE);
     this.updateSurfaceYCacheRange(startBX, endBX);
+
+    // Clear weather overlays in crater area
+    this.clearOverlaysInCrater(centerX, effectiveRadius);
 
     // Add scorch mark
     const scorchRadius = isDigger ? radius * 0.8 : radius * 1.5;

@@ -1,4 +1,4 @@
-import { MAP_WIDTH, MAP_HEIGHT } from '../constants.ts';
+import { MAP_WIDTH, MAP_HEIGHT, TERRAIN_SCALE } from '../constants.ts';
 import {
   WeatherType,
   WeatherConfig,
@@ -7,9 +7,14 @@ import {
   FogLayer,
   SandParticle,
   LightningBolt,
+  DamagingLightningStrike,
+  LightningTelegraph,
+  CinematicFocusRequest,
   WEATHER_CONFIGS,
   TERRAIN_WEATHER_COMPATIBILITY,
 } from '../types/WeatherTypes.ts';
+import { Ant } from '../Ant.ts';
+import { Terrain } from '../Terrain.ts';
 
 export class WeatherSystem {
   // Current weather state
@@ -36,6 +41,23 @@ export class WeatherSystem {
   // Lightning flash
   lightningFlash: number = 0;
   private shouldTriggerFlash: boolean = false;
+
+  // Damaging lightning system
+  damagingStrikes: DamagingLightningStrike[] = [];
+  lightningTelegraphs: LightningTelegraph[] = [];
+  private strikeCooldown: number = 0; // Cooldown in turns
+  private pendingCinematicFocus: CinematicFocusRequest | null = null;
+
+  // Lightning hazard constants
+  private readonly MIN_STRIKE_COOLDOWN = 3; // Minimum turns between strikes
+  private readonly TELEGRAPH_DURATION = 1.5; // seconds
+  private readonly STRIKE_DAMAGE = 35;
+  private readonly STRIKE_MIN_DAMAGE = 10;
+  private readonly STRIKE_RADIUS = 50;
+  private readonly CRATER_RADIUS = 20;
+  private readonly CINEMATIC_DURATION = 2.5;
+  private readonly CINEMATIC_ZOOM = 0.6;
+  private readonly CINEMATIC_SHAKE = 18;
 
   setTerrainTheme(themeName: string): void {
     this.compatibleWeathers = TERRAIN_WEATHER_COMPATIBILITY[themeName] || ['clear'];
@@ -130,13 +152,13 @@ export class WeatherSystem {
     return {
       x: Math.random() * MAP_WIDTH,
       y: Math.random() * MAP_HEIGHT - MAP_HEIGHT,
-      size: 1.5 + Math.random() * 2.5, // Smaller, more delicate flakes
+      size: 4 + Math.random() * 6, // Larger, more visible flakes (4-10 pixels)
       rotation: Math.random() * Math.PI * 2,
       rotationSpeed: (Math.random() - 0.5) * 1.5,
       wobblePhase: Math.random() * Math.PI * 2,
       wobbleSpeed: 0.8 + Math.random() * 1.5,
       fallSpeed: 25 + Math.random() * 35,
-      opacity: 0.5 + Math.random() * 0.4,
+      opacity: 0.6 + Math.random() * 0.4,
     };
   }
 
@@ -356,6 +378,174 @@ export class WeatherSystem {
     this.lightning = this.lightning.filter(bolt => bolt.life > 0);
   }
 
+  // Update damaging lightning animations (called from Game.ts during LIGHTNING_STRIKE state)
+  updateDamagingLightning(deltaTime: number): void {
+    // Update telegraphs
+    for (const telegraph of this.lightningTelegraphs) {
+      telegraph.life -= deltaTime;
+      telegraph.pulsePhase += deltaTime * 8; // Pulsing animation
+
+      // When telegraph expires, spawn the actual strike
+      if (telegraph.life <= 0) {
+        this.spawnStrikeAtTelegraph(telegraph);
+      }
+    }
+    this.lightningTelegraphs = this.lightningTelegraphs.filter(t => t.life > 0);
+
+    // Update damaging strikes
+    for (const strike of this.damagingStrikes) {
+      strike.life -= deltaTime;
+      strike.opacity = Math.min(1, strike.life / strike.maxLife * 2);
+    }
+    this.damagingStrikes = this.damagingStrikes.filter(s => s.life > 0);
+  }
+
+  // Try to spawn a lightning strike at turn transition (called from Game.ts between turns)
+  trySpawnLightningStrike(terrain: Terrain): boolean {
+    // Update cooldown tracking
+    this.strikeCooldown--;
+
+    // Only spawn during rain weather
+    const activeWeather = this.transitionProgress >= 0.5 ? this.targetWeather : this.currentWeather;
+    if (activeWeather !== 'rain') {
+      return false;
+    }
+
+    // Check cooldown (in turns)
+    if (this.strikeCooldown > 0) {
+      return false;
+    }
+
+    // 20% chance per turn during rain
+    if (Math.random() > 0.20) {
+      return false;
+    }
+
+    // Spawn the telegraph
+    this.spawnDamagingLightningTelegraph(terrain);
+    return true;
+  }
+
+  // Spawn a telegraph warning for an upcoming lightning strike
+  private spawnDamagingLightningTelegraph(terrain: Terrain): void {
+    const surfaceYCache = terrain.getSurfaceYCache();
+    const bitmapWidth = terrain.getBitmapWidth();
+
+    // Find a valid surface position
+    const minBX = Math.floor(bitmapWidth * 0.1);
+    const maxBX = Math.floor(bitmapWidth * 0.9);
+    const bx = minBX + Math.floor(Math.random() * (maxBX - minBX));
+    const surfaceBY = surfaceYCache[bx];
+
+    if (surfaceBY < 0) return; // No surface at this position
+
+    const x = bx * TERRAIN_SCALE;
+    const y = surfaceBY * TERRAIN_SCALE;
+
+    // Create telegraph
+    this.lightningTelegraphs.push({
+      x,
+      y,
+      life: this.TELEGRAPH_DURATION,
+      maxLife: this.TELEGRAPH_DURATION,
+      pulsePhase: 0,
+    });
+
+    // Set cooldown in turns
+    this.strikeCooldown = this.MIN_STRIKE_COOLDOWN + Math.floor(Math.random() * 3);
+
+    // Request cinematic focus
+    this.pendingCinematicFocus = {
+      x,
+      y,
+      duration: this.CINEMATIC_DURATION,
+      zoomLevel: this.CINEMATIC_ZOOM,
+      shakeIntensity: this.CINEMATIC_SHAKE,
+    };
+  }
+
+  // Spawn actual lightning strike when telegraph expires
+  private spawnStrikeAtTelegraph(telegraph: LightningTelegraph): void {
+    const strike: DamagingLightningStrike = {
+      x: telegraph.x,
+      y: telegraph.y,
+      segments: [],
+      opacity: 1.0,
+      life: 0.3, // Strike lasts 0.3 seconds
+      maxLife: 0.3,
+      damage: this.STRIKE_DAMAGE,
+      radius: this.STRIKE_RADIUS,
+      hasDealtDamage: false,
+      createsCrater: true,
+      craterRadius: this.CRATER_RADIUS,
+    };
+
+    // Generate lightning segments from sky to ground
+    this.generateLightningSegments(
+      strike.segments,
+      telegraph.x + (Math.random() - 0.5) * 50,
+      0,
+      telegraph.x,
+      telegraph.y,
+      0
+    );
+
+    this.damagingStrikes.push(strike);
+    this.lightningFlash = 1.0;
+  }
+
+  // Apply lightning damage to ants and create crater
+  applyLightningDamage(ants: Ant[], terrain: Terrain): { hits: Array<{ ant: Ant; damage: number }>; strikeX: number; strikeY: number } | null {
+    for (const strike of this.damagingStrikes) {
+      if (strike.hasDealtDamage) continue;
+
+      strike.hasDealtDamage = true;
+
+      const hits: Array<{ ant: Ant; damage: number }> = [];
+
+      // Check each ant for damage
+      for (const ant of ants) {
+        if (!ant.isAlive) continue;
+
+        const dx = ant.x - strike.x;
+        const dy = (ant.y - 15) - strike.y; // Ant center is ~15px above feet
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance <= strike.radius) {
+          // Calculate damage falloff
+          const falloff = 1 - (distance / strike.radius);
+          const damage = Math.max(
+            this.STRIKE_MIN_DAMAGE,
+            Math.floor(strike.damage * falloff)
+          );
+          ant.takeDamage(damage);
+          hits.push({ ant, damage });
+        }
+      }
+
+      // Create crater
+      if (strike.createsCrater) {
+        terrain.createCrater(strike.x, strike.y, strike.craterRadius, 1.0);
+      }
+
+      return { hits, strikeX: strike.x, strikeY: strike.y };
+    }
+
+    return null;
+  }
+
+  // Check if there's a pending cinematic focus request
+  consumePendingCinematicFocus(): CinematicFocusRequest | null {
+    const focus = this.pendingCinematicFocus;
+    this.pendingCinematicFocus = null;
+    return focus;
+  }
+
+  // Check if lightning strike is active (for state management)
+  hasActiveLightningEvent(): boolean {
+    return this.lightningTelegraphs.length > 0 || this.damagingStrikes.length > 0;
+  }
+
   getCurrentConfig(): WeatherConfig {
     return WEATHER_CONFIGS[this.currentWeather];
   }
@@ -391,6 +581,10 @@ export class WeatherSystem {
     this.sandParticles = [];
     this.lightning = [];
     this.lightningFlash = 0;
+    this.damagingStrikes = [];
+    this.lightningTelegraphs = [];
+    this.strikeCooldown = 0;
+    this.pendingCinematicFocus = null;
   }
 
   // Force set weather (for testing)
