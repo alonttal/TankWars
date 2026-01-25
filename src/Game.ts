@@ -3,20 +3,26 @@ import { Terrain } from './Terrain.ts';
 import { Ant } from './Ant.ts';
 import { Projectile } from './Projectile.ts';
 import { Explosion } from './Explosion.ts';
-import { AntAI, AIDifficulty, AIMovementPlan } from './AI.ts';
+import { AIDifficulty } from './AI.ts';
 import { soundManager } from './Sound.ts';
-import { WeaponType, WEAPON_CONFIGS, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
+import { WeaponType, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
 import { BurnArea } from './weapons/BurnArea.ts';
 import { PowerUpManager } from './powerups/PowerUpManager.ts';
 import { POWERUP_CONFIGS } from './powerups/PowerUpTypes.ts';
 import { WeaponSelector } from './ui/WeaponSelector.ts';
 import { BuffIndicator } from './ui/BuffIndicator.ts';
+import { WeaponMenu } from './ui/WeaponMenu.ts';
 
 // Import extracted modules
 import { GameState, GameMode, MenuItem, PlayerStats } from './types/GameTypes.ts';
 import { CameraSystem } from './systems/CameraSystem.ts';
 import { EffectsSystem } from './systems/EffectsSystem.ts';
 import { WeatherSystem } from './systems/WeatherSystem.ts';
+import { InputManager } from './systems/InputManager.ts';
+import { FireSystem } from './systems/FireSystem.ts';
+import { TurnManager } from './systems/TurnManager.ts';
+import { GameStateManager } from './systems/GameStateManager.ts';
+import { AIManager } from './systems/AIManager.ts';
 import { MenuRenderer } from './rendering/MenuRenderer.ts';
 import { HUDRenderer } from './rendering/HUDRenderer.ts';
 import { EffectsRenderer } from './rendering/EffectsRenderer.ts';
@@ -30,17 +36,12 @@ export class Game {
   private explosions: Explosion[];
   private currentPlayerIndex: number;
   private currentTeamIndex: number;
-  private teamTurnCounts: number[];
   private winningTeam: number | null;
   private wind: number;
   private state: GameState;
   private winner: Ant | null;
   private gameMode: GameMode;
-  private ai: AntAI | null;
-  private aiThinkingTimer: number;
-  private aiShot: { angle: number; power: number; target: Ant | null } | null;
-  private aiMovementPlan: AIMovementPlan | null;
-  private aiTarget: Ant | null;
+  private aiManager: AIManager;
 
   // Menu
   private menuItems: MenuItem[];
@@ -49,7 +50,6 @@ export class Game {
   // Pause menu
   private pauseMenuItems: MenuItem[];
   private selectedPauseItem: number;
-  private stateBeforePause: GameState;
 
   // Settings menu
   private selectedSettingIndex: number;
@@ -72,17 +72,6 @@ export class Game {
   private introPanPhase: number;
   private introPanTimer: number;
 
-  // Mouse controls
-  private mouseX: number;
-  private mouseY: number;
-  private isMouseDown: boolean;
-
-  // Weapon menu
-  private weaponMenuOpen: boolean;
-  private weaponMenuPosition: { x: number; y: number };
-
-  // Movement input
-  private movementKeys: { left: boolean; right: boolean };
 
   // Turn timer
   private turnTimeRemaining: number;
@@ -107,11 +96,16 @@ export class Game {
   private powerUpManager: PowerUpManager;
   private weaponSelector: WeaponSelector;
   private buffIndicator: BuffIndicator;
+  private weaponMenu: WeaponMenu;
 
   // Extracted systems
   private camera: CameraSystem;
   private effects: EffectsSystem;
   private weather: WeatherSystem;
+  private input: InputManager;
+  private fireSystem: FireSystem;
+  private turnManager: TurnManager;
+  private gameStateManager: GameStateManager;
   private menuRenderer: MenuRenderer;
   private hudRenderer: HUDRenderer;
   private effectsRenderer: EffectsRenderer;
@@ -132,26 +126,14 @@ export class Game {
     this.explosions = [];
     this.currentPlayerIndex = 0;
     this.currentTeamIndex = 0;
-    this.teamTurnCounts = [0, 0];
     this.winningTeam = null;
     this.wind = 0;
     this.state = 'MENU';
     this.winner = null;
     this.gameMode = 'single';
-    this.ai = null;
-    this.aiThinkingTimer = 0;
-    this.aiShot = null;
-    this.aiMovementPlan = null;
-    this.aiTarget = null;
     this.isChargingPower = false;
     this.introPanPhase = 0;
     this.introPanTimer = 0;
-    this.mouseX = 0;
-    this.mouseY = 0;
-    this.isMouseDown = false;
-    this.weaponMenuOpen = false;
-    this.weaponMenuPosition = { x: 0, y: 0 };
-    this.movementKeys = { left: false, right: false };
     this.maxTurnTime = 30;
     this.turnTimeRemaining = this.maxTurnTime;
     this.playerStats = [];
@@ -167,6 +149,7 @@ export class Game {
     this.camera = new CameraSystem();
     this.effects = new EffectsSystem();
     this.weather = new WeatherSystem();
+    this.input = this.createInputManager();
     this.menuRenderer = new MenuRenderer();
     this.hudRenderer = new HUDRenderer();
     this.effectsRenderer = new EffectsRenderer();
@@ -178,6 +161,12 @@ export class Game {
     this.powerUpManager = new PowerUpManager();
     this.weaponSelector = new WeaponSelector();
     this.buffIndicator = new BuffIndicator();
+    this.weaponMenu = new WeaponMenu({
+      onWeaponSelected: (_weapon) => {
+        const tank = this.ants[this.currentPlayerIndex];
+        if (tank) this.weaponSelector.update(tank);
+      }
+    });
 
     this.weaponSelector.hide();
     this.buffIndicator.hide();
@@ -195,6 +184,69 @@ export class Game {
     this.weaponSelector.hide();
     this.buffIndicator.hide();
 
+    // Initialize fire system
+    this.fireSystem = new FireSystem(this.camera, this.effects, {
+      updateWeaponSelector: (ant) => this.weaponSelector.update(ant),
+      updateBuffIndicator: (ant) => this.buffIndicator.update(ant),
+      setWeaponSelectorEnabled: (enabled) => this.weaponSelector.setEnabled(enabled),
+      setFireButtonDisabled: (disabled) => { this.fireButton.disabled = disabled; },
+      incrementShotsFired: (teamIndex) => { this.playerStats[teamIndex].shotsFired++; },
+    });
+
+    // Initialize turn manager
+    this.turnManager = new TurnManager({
+      getAnts: () => this.ants,
+      getGameMode: () => this.gameMode,
+      onTurnChanged: (antIndex) => { this.currentPlayerIndex = antIndex; },
+      resetMovementKeys: () => this.input.resetMovementKeys(),
+      updateAngleSlider: (angle) => {
+        this.angleSlider.value = angle.toString();
+        this.angleValue.textContent = angle.toString();
+      },
+      showTurnBanner: (text) => this.hudRenderer.showTurnBanner(text),
+      focusOnAnt: (ant) => this.camera.focusOnAnt(ant),
+      updateUI: () => this.updateUI(),
+    });
+
+    // Initialize game state manager
+    this.gameStateManager = new GameStateManager({
+      getState: () => this.state,
+      setState: (state) => { this.state = state; },
+      setSelectedMenuItem: (index) => { this.selectedMenuItem = index; },
+      setSelectedPauseItem: (index) => { this.selectedPauseItem = index; },
+      setSelectedSettingIndex: (index) => { this.selectedSettingIndex = index; },
+      onQuitToMenu: () => {
+        soundManager.stopMusic();
+        this.weaponSelector.hide();
+        this.buffIndicator.hide();
+        this.menuRenderer.reset();
+      },
+    });
+
+    // Initialize AI manager
+    this.aiManager = new AIManager({
+      getCurrentAnt: () => this.ants[this.currentPlayerIndex] || null,
+      getAliveAntsForTeam: (teamIndex) => this.getAliveAntsForTeam(teamIndex),
+      getTerrain: () => this.terrain,
+      getWind: () => this.wind,
+      getAllAnts: () => this.ants,
+      setState: (state) => { this.state = state; },
+      getState: () => this.state,
+      setFireButtonDisabled: (disabled) => { this.fireButton.disabled = disabled; },
+      updateAngleSlider: (angle) => {
+        this.angleSlider.value = angle.toString();
+        this.angleValue.textContent = angle.toString();
+      },
+      updatePowerSlider: (power) => {
+        this.powerSlider.value = power.toString();
+        this.powerValue.textContent = power.toString();
+      },
+      updateWeaponSelector: (ant) => this.weaponSelector.update(ant),
+      focusOnAnt: (ant) => this.camera.focusOnAnt(ant),
+      setProjectiles: (projectiles) => { this.projectiles = projectiles; },
+      endTurn: () => this.endTurn(),
+    }, this.fireSystem);
+
     // Menu setup
     this.selectedMenuItem = 0;
     this.menuItems = [
@@ -204,11 +256,10 @@ export class Game {
 
     // Pause menu setup
     this.selectedPauseItem = 0;
-    this.stateBeforePause = 'PLAYING';
     this.pauseMenuItems = [
-      { label: 'RESUME', action: () => this.resumeGame() },
-      { label: 'SETTINGS', action: () => this.openSettings() },
-      { label: 'QUIT TO MENU', action: () => this.quitToMenu() },
+      { label: 'RESUME', action: () => this.gameStateManager.resumeGame() },
+      { label: 'SETTINGS', action: () => this.gameStateManager.openSettings() },
+      { label: 'QUIT TO MENU', action: () => this.gameStateManager.quitToMenu() },
     ];
 
     // Settings menu
@@ -229,6 +280,105 @@ export class Game {
     this.windInfo.style.display = 'none';
 
     this.setupEventListeners();
+  }
+
+  private createInputManager(): InputManager {
+    return new InputManager({
+      // State queries
+      getState: () => this.state,
+      isAITurn: () => this.isAITurn(),
+      getCurrentAnt: () => this.ants[this.currentPlayerIndex] || null,
+
+      // Menu actions
+      getMenuItems: () => this.menuItems,
+      getSelectedMenuItem: () => this.selectedMenuItem,
+      setSelectedMenuItem: (index: number) => { this.selectedMenuItem = index; },
+      getPauseMenuItems: () => this.pauseMenuItems,
+      getSelectedPauseItem: () => this.selectedPauseItem,
+      setSelectedPauseItem: (index: number) => { this.selectedPauseItem = index; },
+      getSettingsOptions: () => this.settingsOptions,
+      getSelectedSettingIndex: () => this.selectedSettingIndex,
+      setSelectedSettingIndex: (index: number) => { this.selectedSettingIndex = index; },
+
+      // State transitions
+      pauseGame: () => this.gameStateManager.pauseGame(),
+      resumeGame: () => this.gameStateManager.resumeGame(),
+      closeWeaponMenu: () => { this.input.closeWeaponMenu(); },
+      openSettings: () => this.gameStateManager.openSettings(),
+      goToMenu: () => { this.state = 'MENU'; },
+      resetMenu: () => {
+        this.selectedMenuItem = 0;
+        this.menuRenderer.reset();
+      },
+
+      // Movement
+      startWalking: (direction: number) => {
+        const tank = this.ants[this.currentPlayerIndex];
+        if (tank) tank.startWalking(direction);
+      },
+      stopWalking: () => {
+        const tank = this.ants[this.currentPlayerIndex];
+        if (tank) tank.stopWalking();
+      },
+      jump: () => {
+        const tank = this.ants[this.currentPlayerIndex];
+        if (tank) tank.jump();
+      },
+
+      // Aiming and firing
+      updateAimFromMouse: (mouseX: number, mouseY: number) => this.updateAimFromMouse(mouseX, mouseY),
+      startCharging: () => this.startCharging(),
+      stopChargingAndFire: () => {
+        this.isChargingPower = false;
+        soundManager.stopCharging();
+        this.fire();
+      },
+      fireInstant: () => this.fireInstant(),
+      openWeaponMenu: (_x: number, _y: number) => {
+        // Input manager tracks the state
+      },
+      handleWeaponMenuClick: (x: number, y: number) => this.handleWeaponMenuClick(x, y),
+      selectWeaponByKey: (key: string) => this.selectWeaponByKey(key),
+
+      // Volume
+      adjustVolume: (delta: number) => this.adjustVolume(delta),
+
+      // Debug
+      debugKillCurrentAnt: () => {
+        const ant = this.ants[this.currentPlayerIndex];
+        if (ant && ant.isAlive) {
+          ant.takeDamage(999);
+          this.endTurn();
+        }
+      },
+      debugSpawnPowerUp: () => {
+        const x = 100 + Math.random() * (MAP_WIDTH - 200);
+        const types: Array<'health' | 'damage_boost' | 'shield' | 'double_shot'> = ['health', 'damage_boost', 'shield', 'double_shot'];
+        const randomType = types[Math.floor(Math.random() * types.length)];
+        this.powerUpManager.spawnPowerUp(x, this.terrain, randomType);
+        console.log(`[Debug] Spawned power-up: ${randomType} at x=${Math.round(x)}`);
+        this.state = 'POWERUP_FALLING';
+        this.fireButton.disabled = true;
+      },
+      debugCycleWeather: () => {
+        const weatherTypes: Array<'clear' | 'rain' | 'fog' | 'snow' | 'sandstorm'> = ['clear', 'rain', 'fog', 'snow', 'sandstorm'];
+        const currentIndex = weatherTypes.indexOf(this.weather.currentWeather);
+        const nextIndex = (currentIndex + 1) % weatherTypes.length;
+        const nextWeather = weatherTypes[nextIndex];
+        this.weather.forceWeather(nextWeather);
+        console.log(`[Debug] Weather changed to: ${nextWeather}`);
+      },
+
+      // Music
+      toggleMusic: () => {
+        const enabled = soundManager.toggleMusic();
+        this.musicButton.textContent = enabled ? '🎵 ON' : '🎵 OFF';
+        this.musicButton.classList.toggle('off', !enabled);
+      },
+
+      // Terrain reference
+      getTerrain: () => this.terrain,
+    });
   }
 
   private setupEventListeners(): void {
@@ -252,330 +402,26 @@ export class Game {
       this.musicButton.classList.toggle('off', !enabled);
     });
 
-    window.addEventListener('keydown', (e) => this.handleKeyDown(e));
-    window.addEventListener('keyup', (e) => this.handleKeyUp(e));
-
-    this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-    this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
-    this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
-    this.canvas.addEventListener('mouseleave', () => this.handleMouseLeave());
-    this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
-
-    // Prevent context menu on right-click
-    this.canvas.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-    });
+    // Delegate keyboard and mouse input to InputManager
+    this.input.setupEventListeners(this.canvas);
   }
 
-  private handleKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') {
-      // Close weapon menu if open
-      if (this.weaponMenuOpen) {
-        this.weaponMenuOpen = false;
-        return;
-      }
-      if (this.state === 'SETTINGS') {
-        this.state = 'PAUSED';
-      } else if (this.state === 'PAUSED') {
-        this.resumeGame();
-      } else if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'AI_MOVING' || this.state === 'POWERUP_FALLING' || this.state === 'LIGHTNING_STRIKE') {
-        this.pauseGame();
-      }
-      return;
-    }
-
-    if (this.state === 'MENU') {
-      this.handleMenuInput(e);
-      return;
-    }
-
-    if (this.state === 'PAUSED') {
-      this.handlePauseMenuInput(e);
-      return;
-    }
-
-    if (this.state === 'SETTINGS') {
-      this.handleSettingsInput(e);
-      return;
-    }
-
-    if (this.state === 'GAME_OVER') {
-      if (e.key === 'Enter' || e.key === ' ') {
-        this.state = 'MENU';
-        this.selectedMenuItem = 0;
-        this.menuRenderer.reset();
-      }
-      return;
-    }
-
-    if (this.state !== 'PLAYING') return;
-    if (this.isAITurn()) return;
-
-    switch (e.key) {
-      case 'ArrowLeft':
-        e.preventDefault();
-        this.movementKeys.left = true;
-        {
-          const tank = this.ants[this.currentPlayerIndex];
-          if (tank && tank.canMove()) {
-            tank.startWalking(-1);
-          }
-        }
-        break;
-      case 'ArrowRight':
-        e.preventDefault();
-        this.movementKeys.right = true;
-        {
-          const tank = this.ants[this.currentPlayerIndex];
-          if (tank && tank.canMove()) {
-            tank.startWalking(1);
-          }
-        }
-        break;
-      case ' ':
-        e.preventDefault();
-        {
-          const tank = this.ants[this.currentPlayerIndex];
-          // Space is for jumping
-          tank.jump();
-        }
-        break;
-      case 'm':
-      case 'M':
-        const enabled = soundManager.toggleMusic();
-        this.musicButton.textContent = enabled ? '🎵 ON' : '🎵 OFF';
-        this.musicButton.classList.toggle('off', !enabled);
-        break;
-      case '1':
-      case '2':
-      case '3':
-      case '4':
-      case '5':
-        this.selectWeaponByKey(e.key);
-        break;
-      case 'k':
-      case 'K':
-        // Debug: Kill current ant to test death animations
-        {
-          const ant = this.ants[this.currentPlayerIndex];
-          if (ant && ant.isAlive) {
-            ant.takeDamage(999);
-            this.endTurn();
-          }
-        }
-        break;
-      case 'p':
-      case 'P':
-        // Debug: Force spawn a power-up for testing
-        {
-          const x = 100 + Math.random() * (MAP_WIDTH - 200);
-          const types: Array<'health' | 'damage_boost' | 'shield' | 'double_shot'> = ['health', 'damage_boost', 'shield', 'double_shot'];
-          const randomType = types[Math.floor(Math.random() * types.length)];
-          this.powerUpManager.spawnPowerUp(x, this.terrain, randomType);
-          console.log(`[Debug] Spawned power-up: ${randomType} at x=${Math.round(x)}`);
-          // Transition to falling state so camera follows and animation plays
-          this.state = 'POWERUP_FALLING';
-          this.fireButton.disabled = true;
-        }
-        break;
-      case 'w':
-      case 'W':
-        // Debug: Cycle through weather types for testing
-        {
-          const weatherTypes: Array<'clear' | 'rain' | 'fog' | 'snow' | 'sandstorm'> = ['clear', 'rain', 'fog', 'snow', 'sandstorm'];
-          const currentIndex = weatherTypes.indexOf(this.weather.currentWeather);
-          const nextIndex = (currentIndex + 1) % weatherTypes.length;
-          const nextWeather = weatherTypes[nextIndex];
-          this.weather.forceWeather(nextWeather);
-          console.log(`[Debug] Weather changed to: ${nextWeather}`);
-        }
-        break;
-    }
-  }
-
-  private handleKeyUp(e: KeyboardEvent): void {
-    if (this.state !== 'PLAYING' || this.isAITurn()) return;
-
+  private startCharging(): void {
     const tank = this.ants[this.currentPlayerIndex];
+    const weaponConfig = tank.getSelectedWeaponConfig();
 
-    switch (e.key) {
-      case 'ArrowLeft':
-        this.movementKeys.left = false;
-        if (!this.movementKeys.right) {
-          tank?.stopWalking();
-        } else {
-          // Still holding right, walk right
-          tank?.startWalking(1);
-        }
-        break;
-      case 'ArrowRight':
-        this.movementKeys.right = false;
-        if (!this.movementKeys.left) {
-          tank?.stopWalking();
-        } else {
-          // Still holding left, walk left
-          tank?.startWalking(-1);
-        }
-        break;
-    }
-  }
-
-  private handleMouseMove(e: MouseEvent): void {
-    const rect = this.canvas.getBoundingClientRect();
-    this.mouseX = e.clientX - rect.left;
-    this.mouseY = e.clientY - rect.top;
-
-    if (this.state === 'PLAYING' && !this.isAITurn()) {
-      this.updateAimFromMouse();
-    }
-  }
-
-  private handleMouseDown(e: MouseEvent): void {
-    const rect = this.canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-
-    // Right-click: Open weapon menu
-    if (e.button === 2) {
-      if (this.state === 'PLAYING' && !this.isAITurn()) {
-        this.weaponMenuOpen = true;
-        this.weaponMenuPosition = { x: clickX, y: clickY };
-      }
+    // Shotgun fires instantly without charging
+    if (!weaponConfig.requiresCharging) {
+      this.fireInstant();
       return;
     }
 
-    // Left-click
-    if (e.button !== 0) return;
-
-    // If weapon menu is open, handle click on menu
-    if (this.weaponMenuOpen) {
-      this.handleWeaponMenuClick(clickX, clickY);
-      this.weaponMenuOpen = false;
-      return;
-    }
-
-    this.isMouseDown = true;
-
-    if (this.state === 'PLAYING' && !this.isAITurn()) {
-      const tank = this.ants[this.currentPlayerIndex];
-      const weaponConfig = tank.getSelectedWeaponConfig();
-
-      // Shotgun fires instantly without charging
-      if (!weaponConfig.requiresCharging) {
-        this.fireInstant();
-        return;
-      }
-
-      if (!this.isChargingPower) {
-        this.isChargingPower = true;
-        this.powerSlider.value = '0';
-        this.powerSlider.dispatchEvent(new Event('input'));
-        soundManager.startCharging();
-      }
-    }
-  }
-
-  private handleMouseUp(e: MouseEvent): void {
-    if (e.button !== 0) return;
-    this.isMouseDown = false;
-
-    if (this.isChargingPower && this.state === 'PLAYING' && !this.isAITurn()) {
-      this.isChargingPower = false;
-      soundManager.stopCharging();
-      this.fire();
-    }
-  }
-
-  private handleMouseLeave(): void {
-    if (this.isMouseDown && this.isChargingPower && this.state === 'PLAYING' && !this.isAITurn()) {
-      this.isChargingPower = false;
-      this.isMouseDown = false;
-      soundManager.stopCharging();
-      this.fire();
-    }
-  }
-
-  private handleCanvasClick(e: MouseEvent): void {
-    if (this.state === 'MENU') {
-      const rect = this.canvas.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      const menuStartY = 260;
-      const itemHeight = 40;
-
-      for (let i = 0; i < this.menuItems.length; i++) {
-        const itemY = menuStartY + i * itemHeight;
-        if (y >= itemY - 15 && y <= itemY + 15) {
-          this.menuItems[i].action();
-          return;
-        }
-      }
-    } else if (this.state === 'GAME_OVER') {
-      this.state = 'MENU';
-      this.selectedMenuItem = 0;
-      this.menuRenderer.reset();
-    }
-  }
-
-  private handleMenuInput(e: KeyboardEvent): void {
-    switch (e.key) {
-      case 'ArrowUp':
-        this.selectedMenuItem = (this.selectedMenuItem - 1 + this.menuItems.length) % this.menuItems.length;
-        soundManager.playMenuSelect();
-        break;
-      case 'ArrowDown':
-        this.selectedMenuItem = (this.selectedMenuItem + 1) % this.menuItems.length;
-        soundManager.playMenuSelect();
-        break;
-      case 'Enter':
-      case ' ':
-        e.preventDefault();
-        soundManager.playMenuSelect();
-        this.menuItems[this.selectedMenuItem].action();
-        break;
-    }
-  }
-
-  private handlePauseMenuInput(e: KeyboardEvent): void {
-    switch (e.key) {
-      case 'ArrowUp':
-        this.selectedPauseItem = (this.selectedPauseItem - 1 + this.pauseMenuItems.length) % this.pauseMenuItems.length;
-        soundManager.playMenuSelect();
-        break;
-      case 'ArrowDown':
-        this.selectedPauseItem = (this.selectedPauseItem + 1) % this.pauseMenuItems.length;
-        soundManager.playMenuSelect();
-        break;
-      case 'Enter':
-      case ' ':
-        e.preventDefault();
-        soundManager.playMenuSelect();
-        this.pauseMenuItems[this.selectedPauseItem].action();
-        break;
-    }
-  }
-
-  private handleSettingsInput(e: KeyboardEvent): void {
-    switch (e.key) {
-      case 'ArrowUp':
-        this.selectedSettingIndex = (this.selectedSettingIndex - 1 + this.settingsOptions.length) % this.settingsOptions.length;
-        soundManager.playMenuSelect();
-        break;
-      case 'ArrowDown':
-        this.selectedSettingIndex = (this.selectedSettingIndex + 1) % this.settingsOptions.length;
-        soundManager.playMenuSelect();
-        break;
-      case 'ArrowLeft':
-        this.adjustVolume(-10);
-        break;
-      case 'ArrowRight':
-        this.adjustVolume(10);
-        break;
-      case 'Enter':
-      case ' ':
-        if (this.settingsOptions[this.selectedSettingIndex] === 'Back') {
-          this.state = 'PAUSED';
-        }
-        break;
+    if (!this.isChargingPower) {
+      this.isChargingPower = true;
+      this.input.setCharging(true);
+      this.powerSlider.value = '0';
+      this.powerSlider.dispatchEvent(new Event('input'));
+      soundManager.startCharging();
     }
   }
 
@@ -594,32 +440,8 @@ export class Game {
     }
   }
 
-  private pauseGame(): void {
-    this.stateBeforePause = this.state;
-    this.state = 'PAUSED';
-    this.selectedPauseItem = 0;
-  }
-
-  private resumeGame(): void {
-    this.state = this.stateBeforePause;
-  }
-
-  private quitToMenu(): void {
-    this.state = 'MENU';
-    this.selectedMenuItem = 0;
-    soundManager.stopMusic();
-    this.weaponSelector.hide();
-    this.buffIndicator.hide();
-    this.menuRenderer.reset();
-  }
-
-  private openSettings(): void {
-    this.state = 'SETTINGS';
-    this.selectedSettingIndex = 0;
-  }
-
   private isAITurn(): boolean {
-    return this.gameMode === 'single' && this.currentTeamIndex === 1;
+    return this.gameMode === 'single' && this.currentTeamIndex === 1 && this.aiManager.isActive();
   }
 
   private resizeCanvas(): void {
@@ -632,11 +454,11 @@ export class Game {
     updateCanvasSize(width, height);
   }
 
-  private updateAimFromMouse(): void {
+  private updateAimFromMouse(mouseX: number, mouseY: number): void {
     const tank = this.ants[this.currentPlayerIndex];
     if (!tank || !tank.isAlive) return;
 
-    const worldPos = this.camera.screenToWorld(this.mouseX, this.mouseY);
+    const worldPos = this.camera.screenToWorld(mouseX, mouseY);
 
     const dx = worldPos.x - tank.x;
     const dy = worldPos.y - (tank.y - 15);
@@ -702,9 +524,9 @@ export class Game {
 
     // Update turn timer
     if (this.state === 'PLAYING' && !this.isAITurn()) {
-      this.turnTimeRemaining -= deltaTime;
-      if (this.turnTimeRemaining <= 0) {
-        this.turnTimeRemaining = 0;
+      const timerExpired = this.turnManager.updateTimer(deltaTime);
+      this.turnTimeRemaining = this.turnManager.turnTimeRemaining;
+      if (timerExpired) {
         this.powerSlider.value = Math.floor(20 + Math.random() * 60).toString();
         this.powerSlider.dispatchEvent(new Event('input'));
         this.fire();
@@ -729,21 +551,12 @@ export class Game {
 
     // AI thinking
     if (this.state === 'AI_THINKING') {
-      // Continue applying physics so AI lands if still in the air from movement
-      const aiAnt = this.ants[this.currentPlayerIndex];
-      if (aiAnt && aiAnt.isAlive) {
-        aiAnt.updateMovement(effectiveDelta, this.terrain);
-      }
-
-      this.aiThinkingTimer -= deltaTime * 1000;
-      if (this.aiThinkingTimer <= 0 && this.aiShot) {
-        this.executeAIShot();
-      }
+      this.aiManager.updateAIThinking(deltaTime, effectiveDelta);
     }
 
     // AI movement
     if (this.state === 'AI_MOVING') {
-      this.updateAIMovement(effectiveDelta);
+      this.aiManager.updateAIMovement(effectiveDelta);
     }
 
     // Firing state
@@ -1136,7 +949,7 @@ export class Game {
     this.weaponSelector.setEnabled(true);
 
     if (this.isAITurn()) {
-      this.startAITurn();
+      this.aiManager.startAITurn();
     } else {
       this.state = 'PLAYING';
       this.fireButton.disabled = false;
@@ -1274,7 +1087,7 @@ export class Game {
     }
 
     // Weapon menu (UI layer, no camera transform)
-    if (this.weaponMenuOpen && this.state === 'PLAYING') {
+    if (this.input.weaponMenuOpen && this.state === 'PLAYING') {
       this.renderWeaponMenu(this.ctx);
     }
 
@@ -1309,13 +1122,13 @@ export class Game {
     this.projectiles = [];
     this.explosions = [];
     this.burnAreas = [];
-    this.currentPlayerIndex = 0;
-    this.currentTeamIndex = 0;
-    this.teamTurnCounts = [0, 0];
+    this.turnManager.reset();
+    this.currentPlayerIndex = this.turnManager.currentPlayerIndex;
+    this.currentTeamIndex = this.turnManager.currentTeamIndex;
+    this.turnTimeRemaining = this.turnManager.turnTimeRemaining;
     this.winningTeam = null;
     this.winner = null;
     this.isChargingPower = false;
-    this.turnTimeRemaining = this.maxTurnTime;
 
     // Clear effects
     this.effects.clear();
@@ -1328,13 +1141,10 @@ export class Game {
     this.powerUpManager.clear();
 
     // Setup AI
+    this.aiManager.reset();
     if (mode === 'single' && aiDifficulty) {
-      this.ai = new AntAI(aiDifficulty);
-    } else {
-      this.ai = null;
+      this.aiManager.initialize(aiDifficulty);
     }
-    this.aiMovementPlan = null;
-    this.aiTarget = null;
 
     // Generate terrain
     this.terrain.generate();
@@ -1365,15 +1175,15 @@ export class Game {
     // Initialize HUD health animations
     this.hudRenderer.initHealthAnimations(this.ants.length);
 
-    this.currentPlayerIndex = 0;
-    this.teamTurnCounts[0] = 1;
+    this.turnManager.initializeFirstTurn();
+    this.currentPlayerIndex = this.turnManager.currentPlayerIndex;
 
     this.wind = (Math.random() - 0.5) * WIND_STRENGTH_MAX * 2;
     this.updateWindDisplay();
 
     const firstAnt = this.ants[0];
     firstAnt.resetMovementEnergy();
-    this.movementKeys = { left: false, right: false };
+    this.input.resetMovementKeys();
     this.angleSlider.value = firstAnt.angle.toString();
     this.angleValue.textContent = firstAnt.angle.toString();
 
@@ -1382,7 +1192,7 @@ export class Game {
 
     this.weaponSelector.hide();
     this.buffIndicator.hide();
-    this.weaponMenuOpen = false;
+    this.input.closeWeaponMenu();
 
     soundManager.startMusic();
     this.musicButton.textContent = soundManager.isMusicPlaying() ? '🎵 ON' : '🎵 OFF';
@@ -1436,7 +1246,7 @@ export class Game {
     if (this.isAITurn()) return;
 
     this.isChargingPower = false;
-    this.weaponMenuOpen = false;
+    this.input.closeWeaponMenu();
     soundManager.stopCharging();
 
     const tank = this.ants[this.currentPlayerIndex];
@@ -1447,73 +1257,17 @@ export class Game {
 
     const angle = parseInt(this.angleSlider.value);
     const power = (parseInt(this.powerSlider.value) / 100) * MAX_POWER;
-    const weaponConfig = tank.getSelectedWeaponConfig();
 
-    this.projectiles = [];
+    const result = this.fireSystem.fire({
+      ant: tank,
+      angle,
+      power,
+      wind: this.wind,
+      includeDoubleShot: true
+    });
 
-    const barrelEnd = tank.getBarrelEnd();
-    const hasDoubleShot = tank.hasDoubleShot();
-    const pelletCount = weaponConfig.pelletCount;
-    const spreadAngle = weaponConfig.spreadAngle;
-
-    // Handle multi-pellet weapons (like cluster bomb)
-    if (pelletCount > 1) {
-      for (let i = 0; i < pelletCount; i++) {
-        const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
-        const pelletAngle = angle + spreadOffset;
-
-        const projectile = new Projectile(
-          barrelEnd.x,
-          barrelEnd.y,
-          pelletAngle,
-          power,
-          this.wind,
-          tank,
-          weaponConfig
-        );
-        this.projectiles.push(projectile);
-      }
-    } else {
-      // Single projectile weapons (with optional double shot buff)
-      const shotCount = hasDoubleShot ? 2 : 1;
-
-      for (let i = 0; i < shotCount; i++) {
-        const shotAngle = shotCount > 1 ? angle + (i === 0 ? -5 : 5) : angle;
-
-        const projectile = new Projectile(
-          barrelEnd.x,
-          barrelEnd.y,
-          shotAngle,
-          power,
-          this.wind,
-          tank,
-          weaponConfig
-        );
-        this.projectiles.push(projectile);
-      }
-
-      if (hasDoubleShot) {
-        tank.consumeDoubleShot();
-      }
-    }
-
-    tank.useAmmo();
-
-    this.weaponSelector.update(tank);
-    this.buffIndicator.update(tank);
-
-    tank.fire();
-
-    const powerRatio = parseInt(this.powerSlider.value) / 100;
-    this.camera.triggerScreenShake(4 + powerRatio * 8);
-    this.effects.triggerScreenFlash('#FFF', 0.15 + powerRatio * 0.1);
-
+    this.projectiles = result.projectiles;
     this.state = 'FIRING';
-    this.fireButton.disabled = true;
-    this.weaponSelector.setEnabled(false);
-    soundManager.playShoot();
-
-    this.playerStats[tank.teamIndex].shotsFired++;
   }
 
   private selectWeaponByKey(key: string): void {
@@ -1538,340 +1292,33 @@ export class Game {
       return;
     }
 
-    const weaponConfig = tank.getSelectedWeaponConfig();
     const angle = parseInt(this.angleSlider.value);
-    const fixedPower = MAX_POWER * 0.7; // 70% of max power
 
-    this.projectiles = [];
+    const result = this.fireSystem.fireInstant(tank, angle, this.wind);
 
-    const barrelEnd = tank.getBarrelEnd();
-    const pelletCount = weaponConfig.pelletCount;
-    const spreadAngle = weaponConfig.spreadAngle;
-
-    // Create projectiles (single or multiple with spread)
-    if (pelletCount > 1) {
-      for (let i = 0; i < pelletCount; i++) {
-        const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
-        const pelletAngle = angle + spreadOffset;
-
-        const projectile = new Projectile(
-          barrelEnd.x,
-          barrelEnd.y,
-          pelletAngle,
-          fixedPower,
-          this.wind,
-          tank,
-          weaponConfig
-        );
-        this.projectiles.push(projectile);
-      }
-    } else {
-      // Single projectile
-      const projectile = new Projectile(
-        barrelEnd.x,
-        barrelEnd.y,
-        angle,
-        fixedPower,
-        this.wind,
-        tank,
-        weaponConfig
-      );
-      this.projectiles.push(projectile);
-    }
-
-    tank.useAmmo();
-    this.weaponSelector.update(tank);
-    this.buffIndicator.update(tank);
-
-    tank.fire();
-
-    this.camera.triggerScreenShake(8);
-    this.effects.triggerScreenFlash('#FFF', 0.2);
-
+    this.projectiles = result.projectiles;
     this.state = 'FIRING';
-    this.fireButton.disabled = true;
-    this.weaponSelector.setEnabled(false);
-    soundManager.playShoot();
-
-    this.playerStats[tank.teamIndex].shotsFired++;
   }
 
   private handleWeaponMenuClick(x: number, y: number): void {
-    const itemHeight = 35;
-    const menuWidth = 180;
-    const menuPadding = 10;
-    const menuHeight = WEAPON_ORDER.length * itemHeight + menuPadding * 2;
+    const tank = this.ants[this.currentPlayerIndex];
+    if (!tank) return;
 
-    // Convert click coordinates to base coordinates (same as rendering)
-    const clickX = x / SCALE_X;
-    const clickY = y / SCALE_Y;
-
-    // Clamp menu position to base coordinates (same as rendering)
-    let menuX = this.weaponMenuPosition.x / SCALE_X;
-    let menuY = this.weaponMenuPosition.y / SCALE_Y;
-    menuX = Math.min(menuX, BASE_WIDTH - menuWidth - 10);
-    menuY = Math.min(menuY, BASE_HEIGHT - menuHeight - 10);
-
-    // Check which item was clicked
-    for (let i = 0; i < WEAPON_ORDER.length; i++) {
-      const itemY = menuY + menuPadding + i * itemHeight;
-      if (
-        clickX >= menuX &&
-        clickX <= menuX + menuWidth &&
-        clickY >= itemY &&
-        clickY <= itemY + itemHeight
-      ) {
-        const weapon = WEAPON_ORDER[i];
-        const tank = this.ants[this.currentPlayerIndex];
-        if (tank && tank.hasAmmo(weapon) && tank.selectWeapon(weapon)) {
-          this.weaponSelector.update(tank);
-          soundManager.playMenuSelect();
-        }
-        return;
-      }
-    }
+    this.weaponMenu.handleClick(x, y, this.input.weaponMenuPosition, tank);
   }
 
   private renderWeaponMenu(ctx: CanvasRenderingContext2D): void {
-    if (!this.weaponMenuOpen) return;
+    if (!this.input.weaponMenuOpen) return;
 
     const tank = this.ants[this.currentPlayerIndex];
     if (!tank) return;
 
-    const itemHeight = 35;
-    const menuWidth = 180;
-    const menuPadding = 10;
-    const menuHeight = WEAPON_ORDER.length * itemHeight + menuPadding * 2;
-
-    // Clamp menu position to screen (in canvas coordinates)
-    let menuX = this.weaponMenuPosition.x / SCALE_X;
-    let menuY = this.weaponMenuPosition.y / SCALE_Y;
-    menuX = Math.min(menuX, BASE_WIDTH - menuWidth - 10);
-    menuY = Math.min(menuY, BASE_HEIGHT - menuHeight - 10);
-
-    // Background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
-
-    // Border
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
-
-    // Title
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 12px "Courier New"';
-    ctx.textAlign = 'left';
-
-    // Calculate hover position (in base coordinates)
-    const hoverX = this.mouseX / SCALE_X;
-    const hoverY = this.mouseY / SCALE_Y;
-
-    // Items
-    for (let i = 0; i < WEAPON_ORDER.length; i++) {
-      const weapon = WEAPON_ORDER[i];
-      const config = WEAPON_CONFIGS[weapon];
-      const itemY = menuY + menuPadding + i * itemHeight;
-      const hasAmmo = tank.hasAmmo(weapon);
-      const isSelected = tank.selectedWeapon === weapon;
-
-      // Hover detection
-      const isHovered =
-        hoverX >= menuX &&
-        hoverX <= menuX + menuWidth &&
-        hoverY >= itemY &&
-        hoverY <= itemY + itemHeight;
-
-      // Background highlight
-      if (isHovered && hasAmmo) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-        ctx.fillRect(menuX + 2, itemY, menuWidth - 4, itemHeight);
-      }
-
-      // Selected indicator
-      if (isSelected) {
-        ctx.fillStyle = 'rgba(100, 200, 100, 0.3)';
-        ctx.fillRect(menuX + 2, itemY, menuWidth - 4, itemHeight);
-      }
-
-      // Text color
-      if (!hasAmmo) {
-        ctx.fillStyle = '#666'; // Greyed out
-      } else if (isHovered) {
-        ctx.fillStyle = '#fff';
-      } else {
-        ctx.fillStyle = '#ccc';
-      }
-
-      // Weapon name
-      ctx.font = 'bold 12px "Courier New"';
-      ctx.fillText(`[${config.keyBinding}] ${config.name}`, menuX + 10, itemY + 15);
-
-      // Ammo count
-      ctx.font = '10px "Courier New"';
-      const ammo = tank.getAmmo(weapon);
-      const ammoText = ammo === -1 ? 'INF' : `${ammo}`;
-      ctx.fillText(`Ammo: ${ammoText}`, menuX + 10, itemY + 28);
-
-      // Selected checkmark
-      if (isSelected) {
-        ctx.fillStyle = '#4ECB71';
-        ctx.fillText('*', menuX + menuWidth - 20, itemY + 20);
-      }
-    }
-  }
-
-  private startAITurn(): void {
-    if (!this.ai) return;
-
-    const aiAnt = this.ants[this.currentPlayerIndex];
-    if (!aiAnt.isAlive) return;
-
-    const enemyTeamIndex = aiAnt.teamIndex === 0 ? 1 : 0;
-    const enemyAnts = this.getAliveAntsForTeam(enemyTeamIndex);
-    if (enemyAnts.length === 0) return;
-
-    const target = this.ai.selectTarget(aiAnt, enemyAnts);
-    if (!target) return;
-
-    this.aiTarget = target;
-    this.fireButton.disabled = true;
-
-    // Check if AI should consider moving to a better position
-    const shouldMove = this.ai.shouldConsiderMoving();
-    console.log('[AI] shouldConsiderMoving:', shouldMove);
-    if (shouldMove) {
-      const movementPlan = this.ai.planMovement(aiAnt, target, this.terrain, this.wind);
-      console.log('[AI] movementPlan:', movementPlan);
-      if (movementPlan) {
-        // AI decided to move - start movement
-        console.log('[AI] Starting movement to', movementPlan.targetX, 'from', aiAnt.x);
-        this.aiMovementPlan = movementPlan;
-        const direction = movementPlan.targetX > aiAnt.x ? 1 : -1;
-        aiAnt.startWalking(direction);
-        this.state = 'AI_MOVING';
-        this.camera.focusOnAnt(aiAnt);
-        return;
-      }
-    }
-
-    // No movement - proceed directly to aiming and shooting
-    this.prepareAIShot(aiAnt, target);
-  }
-
-  private prepareAIShot(aiAnt: Ant, target: Ant): void {
-    if (!this.ai) return;
-
-    this.ai.selectWeapon(aiAnt, target, this.terrain);
-    this.weaponSelector.update(aiAnt);
-
-    const shot = this.ai.calculateShot(aiAnt, target, this.wind, this.terrain, this.ants);
-    this.aiShot = { ...shot, target };
-    this.aiThinkingTimer = this.ai.getThinkingTime();
-
-    aiAnt.angle = Math.round(shot.angle);
-
-    this.state = 'AI_THINKING';
-    this.fireButton.disabled = true;
-
-    this.angleSlider.value = Math.round(shot.angle).toString();
-    this.angleValue.textContent = Math.round(shot.angle).toString();
-    this.powerSlider.value = Math.round(shot.power).toString();
-    this.powerValue.textContent = Math.round(shot.power).toString();
-  }
-
-  private updateAIMovement(deltaTime: number): void {
-    const aiAnt = this.ants[this.currentPlayerIndex];
-    if (!aiAnt || !aiAnt.isAlive || !this.aiMovementPlan) {
-      console.log('[AI Movement] Finishing early - no ant or plan');
-      this.finishAIMovement();
-      return;
-    }
-
-    // Update ant movement physics
-    aiAnt.updateMovement(deltaTime, this.terrain);
-
-    // Check if we need to jump
-    if (this.aiMovementPlan.requiresJump && this.aiMovementPlan.jumpAtX !== null) {
-      const jumpDistance = Math.abs(aiAnt.x - this.aiMovementPlan.jumpAtX);
-      if (jumpDistance < 10 && aiAnt.isGrounded) {
-        console.log('[AI Movement] Jumping at', aiAnt.x);
-        aiAnt.jump();
-      }
-    }
-
-    // Check if we reached the target position or ran out of energy
-    const distanceToTarget = Math.abs(aiAnt.x - this.aiMovementPlan.targetX);
-    const reachedTarget = distanceToTarget < 15;
-    const outOfEnergy = aiAnt.movementEnergy <= 0;
-
-    if (reachedTarget || outOfEnergy) {
-      console.log('[AI Movement] Finished - reached:', reachedTarget, 'outOfEnergy:', outOfEnergy, 'finalX:', aiAnt.x);
-      this.finishAIMovement();
-    }
-
-    // Follow AI with camera during movement
-    this.camera.focusOnAnt(aiAnt);
-  }
-
-  private finishAIMovement(): void {
-    const aiAnt = this.ants[this.currentPlayerIndex];
-    if (aiAnt) {
-      aiAnt.stopWalking();
-    }
-
-    this.aiMovementPlan = null;
-
-    // Now proceed to shooting
-    if (aiAnt && aiAnt.isAlive && this.aiTarget) {
-      this.prepareAIShot(aiAnt, this.aiTarget);
-    } else {
-      // Fallback - end turn if something went wrong
-      this.state = 'PLAYING';
-      this.endTurn();
-    }
-  }
-
-  private executeAIShot(): void {
-    if (!this.aiShot) return;
-
-    const tank = this.ants[this.currentPlayerIndex];
-    const angle = this.aiShot.angle;
-    const power = (this.aiShot.power / 100) * MAX_POWER;
-    const weaponConfig = tank.getSelectedWeaponConfig();
-
-    tank.angle = angle;
-
-    this.projectiles = [];
-
-    const barrelEnd = tank.getBarrelEnd();
-    const projectile = new Projectile(
-      barrelEnd.x,
-      barrelEnd.y,
-      angle,
-      power,
-      this.wind,
-      tank,
-      weaponConfig
+    this.weaponMenu.render(
+      ctx,
+      this.input.weaponMenuPosition,
+      { x: this.input.mouseX, y: this.input.mouseY },
+      tank
     );
-    this.projectiles.push(projectile);
-
-    tank.useAmmo();
-    this.weaponSelector.update(tank);
-    this.buffIndicator.update(tank);
-
-    tank.fire();
-
-    const powerRatio = this.aiShot.power / 100;
-    this.camera.triggerScreenShake(4 + powerRatio * 8);
-    this.effects.triggerScreenFlash('#FFF', 0.15 + powerRatio * 0.1);
-
-    this.aiShot = null;
-    this.aiTarget = null;
-    this.state = 'FIRING';
-    soundManager.playShoot();
-
-    this.playerStats[tank.teamIndex].shotsFired++;
   }
 
   private endTurn(): void {
@@ -1922,53 +1369,17 @@ export class Game {
   }
 
   private nextPlayer(): void {
-    this.currentTeamIndex = (this.currentTeamIndex + 1) % NUM_TEAMS;
-
-    const nextAnt = this.getNextAntForTeam(this.currentTeamIndex);
-    if (!nextAnt) return;
-
-    this.currentPlayerIndex = nextAnt.playerIndex;
-    this.teamTurnCounts[this.currentTeamIndex]++;
-
-    this.turnTimeRemaining = this.maxTurnTime;
-
-    // Reset movement for new turn
-    nextAnt.resetMovementEnergy();
-    this.movementKeys = { left: false, right: false };
-
-    this.angleSlider.value = nextAnt.angle.toString();
-    this.angleValue.textContent = nextAnt.angle.toString();
-
-    const turnText = this.getTurnBannerText();
-    this.hudRenderer.showTurnBanner(turnText);
-
-    this.camera.focusOnAnt(nextAnt);
-    this.updateUI();
-  }
-
-  private getNextAntForTeam(teamIndex: number): Ant | null {
-    const aliveTeamAnts = this.getAliveAntsForTeam(teamIndex);
-    if (aliveTeamAnts.length === 0) return null;
-
-    const turnIndex = this.teamTurnCounts[teamIndex] % aliveTeamAnts.length;
-    return aliveTeamAnts[turnIndex];
+    this.turnManager.nextPlayer();
+    this.currentTeamIndex = this.turnManager.currentTeamIndex;
+    this.currentPlayerIndex = this.turnManager.currentPlayerIndex;
   }
 
   private getAliveAntsForTeam(teamIndex: number): Ant[] {
-    return this.ants.filter(ant => ant.teamIndex === teamIndex && ant.isAlive);
+    return this.turnManager.getAliveAntsForTeam(teamIndex);
   }
 
   private getTurnBannerText(): string {
-    const ant = this.ants[this.currentPlayerIndex];
-    if (this.gameMode === 'single') {
-      if (ant.teamIndex === 0) {
-        return `YOUR TURN - ANT ${ant.teamAntIndex + 1}`;
-      } else {
-        return `CPU TURN - ANT ${ant.teamAntIndex + 1}`;
-      }
-    } else {
-      return `TEAM ${ant.teamIndex + 1} - ANT ${ant.teamAntIndex + 1}`;
-    }
+    return this.turnManager.getTurnBannerText();
   }
 
   private updateUI(): void {

@@ -16,6 +16,9 @@ import {
   DissolveParticle,
   DeathAnimationState,
 } from '../types/AntParticleTypes.ts';
+// Strategy pattern infrastructure is set up in ./death/
+// These utilities can be used when extracting individual death effects:
+// import { drawPixel, parseColor, lightenColor, darkenColor, getGroundYAt } from './death/DeathRenderingUtils.ts';
 
 // Interface for the ant data needed by the death system
 export interface AntDeathData {

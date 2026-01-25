@@ -26,23 +26,42 @@ This is a browser-based artillery game (similar to Worms/Scorched Earth) built w
 
 | File/Directory | Purpose |
 |----------------|---------|
-| `Game.ts` | Main game class - state machine, input handling, game loop (update/render), turn management |
+| `Game.ts` | Main game class - orchestrates systems, game loop (update/render) |
 | `Ant.ts` | Player unit - pixel art rendering, weapons, buffs, health, targeting cursor |
 | `Terrain.ts` | Destructible bitmap terrain with procedural generation |
 | `Projectile.ts` | Projectile physics (gravity, wind), collision detection, trail rendering |
 | `AI.ts` | CPU opponent logic with difficulty levels |
-| `constants.ts` | All game constants (dimensions, physics, team config) |
+| `constants/` | Game constants split into modules (canvas, physics, movement, entities, teams, terrain) |
 
-### Extracted Subsystems
+### Extracted Systems (in `src/systems/`)
 
-| Directory | Purpose |
-|-----------|---------|
-| `systems/CameraSystem.ts` | Zoom, pan, screen shake, coordinate transforms |
-| `systems/EffectsSystem.ts` | Confetti, fireworks, hitstop, screen flash |
-| `rendering/MenuRenderer.ts` | Menu, pause, settings, game over screens |
-| `rendering/HUDRenderer.ts` | Health bars, turn timer, wind indicator, turn banner |
-| `rendering/EffectsRenderer.ts` | Visual effects drawing |
-| `types/GameTypes.ts` | Shared TypeScript interfaces |
+| File | Purpose |
+|------|---------|
+| `InputManager.ts` | Keyboard/mouse input handling with callback-based architecture |
+| `FireSystem.ts` | Firing logic for player, AI, and instant-fire weapons |
+| `TurnManager.ts` | Turn state, transitions, and timer management |
+| `GameStateManager.ts` | Game state machine (pause, resume, quit, settings) |
+| `AIManager.ts` | AI turn orchestration (movement, aiming, shooting) |
+| `CameraSystem.ts` | Zoom, pan, screen shake, coordinate transforms |
+| `EffectsSystem.ts` | Confetti, fireworks, hitstop, screen flash |
+| `WeatherSystem.ts` | Weather state and transitions |
+| `AntDeathSystem.ts` | Death animations with strategy pattern infrastructure |
+
+### Rendering (in `src/rendering/`)
+
+| File | Purpose |
+|------|---------|
+| `MenuRenderer.ts` | Menu, pause, settings, game over screens |
+| `HUDRenderer.ts` | Health bars, turn timer, wind indicator, turn banner |
+| `EffectsRenderer.ts` | Visual effects drawing |
+| `WeatherRenderer.ts` | Weather effects with strategy pattern infrastructure |
+
+### Types (in `src/types/`)
+
+| File | Purpose |
+|------|---------|
+| `GameTypes.ts` | Shared TypeScript interfaces (GameState, GameMode, etc.) |
+| `AntParticleTypes.ts` | Death animation types |
 
 ### Game Features
 
@@ -57,6 +76,7 @@ This is a browser-based artillery game (similar to Worms/Scorched Earth) built w
 
 | File | Purpose |
 |------|---------|
+| `docs/ARCHITECTURE.md` | Codebase architecture, folder structure, and development guidelines |
 | `docs/ADDING_WEAPONS.md` | Step-by-step guide for adding new weapons |
 | `src/AI_WEAPON_SELECTION.md` | How AI selects weapons and calculates shots |
 
@@ -81,4 +101,4 @@ This is a browser-based artillery game (similar to Worms/Scorched Earth) built w
 3. Projectile updates until collision with terrain or ant
 4. `Explosion` applies damage and destroys terrain
 5. `endTurn()` checks win condition, spawns power-ups, switches to next team
-6. If AI turn → `AI_THINKING` state → `executeAIShot()`
+6. If AI turn → `AIManager` handles movement, aiming, and shooting
