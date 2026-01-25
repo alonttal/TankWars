@@ -1577,10 +1577,10 @@ export class Game {
   private prepareAIShot(aiAnt: Ant, target: Ant): void {
     if (!this.ai) return;
 
-    this.ai.selectWeapon(aiAnt, target);
+    this.ai.selectWeapon(aiAnt, target, this.terrain);
     this.weaponSelector.update(aiAnt);
 
-    const shot = this.ai.calculateShot(aiAnt, target, this.wind);
+    const shot = this.ai.calculateShot(aiAnt, target, this.wind, this.terrain, this.ants);
     this.aiShot = { ...shot, target };
     this.aiThinkingTimer = this.ai.getThinkingTime();
 

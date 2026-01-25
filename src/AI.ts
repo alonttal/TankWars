@@ -9,6 +9,7 @@ import {
   MOVEMENT_ENERGY_COST,
   JUMP_ENERGY_COST
 } from './constants.ts';
+import { WeaponType, WEAPON_CONFIGS, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
 
 export type AIDifficulty = 'easy' | 'medium' | 'hard';
 
@@ -63,9 +64,143 @@ export class AntAI {
   }
 
   // Select weapon based on situation
-  selectWeapon(shooter: Ant, _target: Ant): void {
-    // Currently only standard weapon available
-    shooter.selectWeapon('standard');
+  selectWeapon(shooter: Ant, target: Ant, terrain: Terrain): void {
+    // Get available weapons (have ammo)
+    const availableWeapons = WEAPON_ORDER.filter(w => shooter.hasAmmo(w));
+
+    if (availableWeapons.length === 1) {
+      shooter.selectWeapon(availableWeapons[0]);
+      return;
+    }
+
+    // Calculate situation metrics
+    const distance = Math.abs(target.x - shooter.x);
+    const heightDiff = shooter.y - target.y; // positive = shooter is lower
+    const targetHealth = target.health;
+
+    // Check line of sight for sniper (straight shot weapons)
+    const hasLineOfSight = this.checkLineOfSight(shooter, target, terrain);
+
+    // Quick check if sniper shot is actually viable (simulate it)
+    const sniperViable = hasLineOfSight ? this.checkSniperViability(shooter, target, terrain) : false;
+
+    // Score each weapon for this situation
+    const weaponScores: { weapon: WeaponType; score: number }[] = [];
+
+    for (const weapon of availableWeapons) {
+      const config = WEAPON_CONFIGS[weapon];
+      let score = 0;
+
+      // Base score from potential damage
+      const potentialDamage = config.pelletCount > 1
+        ? config.damage * config.pelletCount * 0.4 // Assume ~40% pellets hit
+        : config.damage;
+      score += potentialDamage;
+
+      // Distance-based scoring
+      if (weapon === 'sniper') {
+        // Sniper REQUIRES clear line of sight AND viable shot
+        if (!sniperViable) {
+          score -= 200; // Heavy penalty - sniper can't hit target
+        } else {
+          // Sniper excels at long range with clear line of sight
+          if (distance > 400) score += 40;
+          else if (distance > 250) score += 20;
+          else if (distance < 150) score -= 30; // Too close, overkill
+
+          // Sniper works best when target is at same height or below
+          // (can't arc up well due to low gravity)
+          if (heightDiff > 100) {
+            // Target is much higher - sniper can't reach (would need high arc)
+            score -= 100;
+          } else if (heightDiff > 50) {
+            // Target is somewhat higher - difficult shot
+            score -= 30;
+          } else if (heightDiff < -50) {
+            // Target is below - good for sniper (aim down)
+            score += 20;
+          } else {
+            // Similar height - ideal for sniper
+            score += 15;
+          }
+        }
+      } else if (weapon === 'shotgun') {
+        // Cluster bomb is best at medium range where spread covers target
+        if (distance >= 150 && distance <= 350) score += 35;
+        else if (distance < 150) score += 15; // Still ok close
+        else score -= 15; // Spread too wide at long range
+      } else if (weapon === 'bazooka') {
+        // Heavy bazooka is slow, works best at medium range
+        if (distance >= 200 && distance <= 400) score += 25;
+        else if (distance > 400) score -= 20; // Hard to aim slow projectile far
+      } else if (weapon === 'napalm') {
+        // Napalm is good for area denial and damage over time
+        if (distance >= 150 && distance <= 350) score += 20;
+        // Bonus if target has high health (burn adds up)
+        if (targetHealth > 60) score += 15;
+      }
+      // Standard is neutral on distance
+
+      // Health-based decisions
+      if (targetHealth <= 30) {
+        // Low health - use standard or sniper to finish off, save heavy weapons
+        if (weapon === 'standard') score += 25;
+        else if (weapon === 'sniper') score += 20;
+        else if (weapon === 'bazooka' || weapon === 'napalm') score -= 30; // Don't waste
+      } else if (targetHealth >= 80) {
+        // High health - heavy weapons are worth using
+        if (weapon === 'bazooka') score += 20;
+        if (weapon === 'napalm') score += 15; // Burn will tick
+      }
+
+      // Ammo conservation - slight preference to save limited ammo
+      if (config.ammo !== -1) {
+        const ammoLeft = shooter.getAmmo(weapon);
+        if (ammoLeft === 1) score -= 10; // Last shot, be more conservative
+      }
+
+      weaponScores.push({ weapon, score });
+    }
+
+    // Sort by score
+    weaponScores.sort((a, b) => b.score - a.score);
+
+    // Difficulty affects selection
+    let selectedWeapon: WeaponType;
+    switch (this.difficulty) {
+      case 'easy':
+        // Easy: 40% best, 35% second best, 25% random
+        const easyRoll = Math.random();
+        if (easyRoll < 0.4 && weaponScores.length > 0) {
+          selectedWeapon = weaponScores[0].weapon;
+        } else if (easyRoll < 0.75 && weaponScores.length > 1) {
+          selectedWeapon = weaponScores[1].weapon;
+        } else {
+          selectedWeapon = availableWeapons[Math.floor(Math.random() * availableWeapons.length)];
+        }
+        break;
+      case 'medium':
+        // Medium: 65% best, 25% second best, 10% random
+        const medRoll = Math.random();
+        if (medRoll < 0.65) {
+          selectedWeapon = weaponScores[0].weapon;
+        } else if (medRoll < 0.9 && weaponScores.length > 1) {
+          selectedWeapon = weaponScores[1].weapon;
+        } else {
+          selectedWeapon = availableWeapons[Math.floor(Math.random() * availableWeapons.length)];
+        }
+        break;
+      case 'hard':
+        // Hard: 90% best, 10% second best
+        if (Math.random() < 0.9 || weaponScores.length === 1) {
+          selectedWeapon = weaponScores[0].weapon;
+        } else {
+          selectedWeapon = weaponScores[1].weapon;
+        }
+        break;
+    }
+
+    shooter.selectWeapon(selectedWeapon);
   }
 
   // Select which enemy ant to target
@@ -114,10 +249,84 @@ export class AntAI {
     return closest;
   }
 
+  // Check if there's a clear line of sight from shooter to target (for sniper)
+  private checkLineOfSight(shooter: Ant, target: Ant, terrain: Terrain): boolean {
+    const barrelEnd = shooter.getBarrelEnd();
+    const startX = barrelEnd.x;
+    const startY = barrelEnd.y;
+    const targetX = target.x;
+    const targetY = target.y - 10; // Target center
+
+    const dx = targetX - startX;
+    const dy = targetY - startY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const steps = Math.ceil(distance / 10); // Check every 10 pixels
+
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      const checkX = startX + dx * t;
+      const checkY = startY + dy * t;
+
+      // Get terrain height at this x position
+      const terrainHeight = terrain.getHeightAt(checkX);
+      const terrainY = MAP_HEIGHT - terrainHeight;
+
+      // If the line goes below terrain, no line of sight
+      if (checkY > terrainY) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  // Check if a sniper shot can actually reach the target
+  private checkSniperViability(shooter: Ant, target: Ant, terrain: Terrain): boolean {
+    const barrelEnd = shooter.getBarrelEnd();
+    const startX = barrelEnd.x;
+    const startY = barrelEnd.y;
+    const targetX = target.x;
+    const targetY = target.y - 10;
+
+    const dx = targetX - startX;
+    const dy = targetY - startY;
+    const shootingRight = dx > 0;
+
+    // Calculate direct angle to target
+    const directAngle = Math.atan2(-dy, Math.abs(dx)) * (180 / Math.PI);
+
+    // Sniper config
+    const sniperConfig = WEAPON_CONFIGS['sniper'];
+    const power = MAX_POWER * sniperConfig.projectileSpeed;
+    const gravityMult = sniperConfig.gravityMultiplier;
+    const explosionRadius = sniperConfig.explosionRadius;
+
+    // Try a few angles around direct angle
+    for (let angleOffset = -10; angleOffset <= 10; angleOffset += 2) {
+      const testAngle = directAngle + angleOffset;
+      if (testAngle < 0 || testAngle > 80) continue;
+
+      const result = this.simulateShot(
+        startX, startY, testAngle, power, 0, // Ignore wind for quick check
+        targetX, targetY, shootingRight, gravityMult,
+        terrain, [], explosionRadius
+      );
+
+      // If we can get within explosion radius without hitting terrain, sniper is viable
+      if (!result.hitsTerrain && result.distance < explosionRadius * 2) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   calculateShot(
     shooter: Ant,
     target: Ant,
-    wind: number
+    wind: number,
+    terrain: Terrain,
+    allAnts: Ant[]
   ): { angle: number; power: number } {
     const barrelEnd = shooter.getBarrelEnd();
     const startX = barrelEnd.x;
@@ -129,20 +338,99 @@ export class AntAI {
 
     // Calculate horizontal distance
     const dx = targetX - startX;
+    const dy = targetY - startY;
 
-    // Use iterative approach to find good angle/power
+    // Get weapon-specific physics
+    const weaponConfig = WEAPON_CONFIGS[shooter.selectedWeapon];
+    const gravityMult = weaponConfig.gravityMultiplier;
+    const speedMult = weaponConfig.projectileSpeed;
+    const explosionRadius = weaponConfig.explosionRadius;
+
+    // Get friendly ants (same team, excluding self)
+    const friendlyAnts = allAnts.filter(
+      a => a.teamIndex === shooter.teamIndex && a !== shooter && a.health > 0
+    );
+
+    // Special handling for sniper (instant fire, nearly straight shot)
+    if (shooter.selectedWeapon === 'sniper') {
+      // Sniper has very low gravity (0.05) and high speed (2.5x), but still needs simulation
+      // to account for slight drop and wind over distance
+
+      // Calculate base direct angle as starting point
+      const directAngle = Math.atan2(-dy, Math.abs(dx)) * (180 / Math.PI);
+
+      // Simulate sniper shots around the direct angle to find best
+      let bestSniperAngle = directAngle;
+      let bestSniperDistance = Infinity;
+
+      // Search in a narrow range around direct angle (sniper is nearly straight)
+      const searchMin = Math.max(0, directAngle - 15);
+      const searchMax = Math.min(80, directAngle + 15);
+
+      for (let angle = searchMin; angle <= searchMax; angle += 1) {
+        const power = MAX_POWER * speedMult; // Sniper always at full power
+        const result = this.simulateShot(
+          startX, startY, angle, power, wind,
+          targetX, targetY, dx > 0, gravityMult,
+          terrain, friendlyAnts, explosionRadius
+        );
+
+        // Only consider shots that don't hit terrain or friendlies
+        if (!result.hitsTerrain && !result.hitsFriendly && result.distance < bestSniperDistance) {
+          bestSniperDistance = result.distance;
+          bestSniperAngle = angle;
+        }
+      }
+
+      // Apply small inaccuracy based on difficulty
+      const angleError = (Math.random() - 0.5) * 2 * this.inaccuracy * 10;
+
+      // Convert angle based on direction
+      const finalAngle = dx > 0
+        ? Math.max(5, Math.min(85, bestSniperAngle + angleError))
+        : Math.max(95, Math.min(175, 180 - bestSniperAngle + angleError));
+
+      return {
+        angle: finalAngle,
+        power: 100, // Sniper always fires at full power (instant)
+      };
+    }
+
+    // Use iterative approach to find good angle/power for other weapons
     let bestAngle = 45;
     let bestPower = 50;
-    let bestDistance = Infinity;
+    let bestScore = -Infinity;
+
+    // Adjust search ranges based on weapon characteristics
+    const minAngle = 20;
+    const maxAngle = 80;
+
+    // Bazooka has lower effective range due to slow speed
+    const minPower = speedMult < 0.8 ? 50 : 30;
+    const maxPower = 100;
 
     // Try different combinations
-    for (let angle = 20; angle <= 80; angle += 2) {
-      for (let powerPercent = 30; powerPercent <= 100; powerPercent += 5) {
-        const power = (powerPercent / 100) * MAX_POWER;
-        const result = this.simulateShot(startX, startY, angle, power, wind, targetX, targetY, dx > 0);
+    for (let angle = minAngle; angle <= maxAngle; angle += 2) {
+      for (let powerPercent = minPower; powerPercent <= maxPower; powerPercent += 5) {
+        const power = (powerPercent / 100) * MAX_POWER * speedMult;
+        const result = this.simulateShot(
+          startX, startY, angle, power, wind,
+          targetX, targetY, dx > 0, gravityMult,
+          terrain, friendlyAnts, explosionRadius
+        );
 
-        if (result.distance < bestDistance) {
-          bestDistance = result.distance;
+        // Score this shot (lower distance is better, but penalize blocked/friendly fire)
+        let score = -result.distance;
+
+        if (result.hitsTerrain) {
+          score -= 500; // Heavy penalty for hitting terrain before target
+        }
+        if (result.hitsFriendly) {
+          score -= 1000; // Very heavy penalty for friendly fire
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
           bestAngle = angle;
           bestPower = powerPercent;
         }
@@ -150,8 +438,8 @@ export class AntAI {
     }
 
     // Apply inaccuracy based on difficulty
-    const angleError = (Math.random() - 0.5) * 2 * this.inaccuracy * 30; // Up to ±inaccuracy*30 degrees
-    const powerError = (Math.random() - 0.5) * 2 * this.inaccuracy * 20; // Up to ±inaccuracy*20%
+    const angleError = (Math.random() - 0.5) * 2 * this.inaccuracy * 30;
+    const powerError = (Math.random() - 0.5) * 2 * this.inaccuracy * 20;
 
     // If shooting left, convert angle
     const finalAngle = dx > 0 ? bestAngle : 180 - bestAngle;
@@ -170,8 +458,12 @@ export class AntAI {
     wind: number,
     targetX: number,
     targetY: number,
-    shootingRight: boolean
-  ): { distance: number } {
+    shootingRight: boolean,
+    gravityMultiplier: number,
+    terrain: Terrain,
+    friendlyAnts: Ant[],
+    explosionRadius: number
+  ): { distance: number; hitsTerrain: boolean; hitsFriendly: boolean } {
     // Convert angle based on direction
     const actualAngle = shootingRight ? angleDeg : 180 - angleDeg;
     const angleRad = (actualAngle * Math.PI) / 180;
@@ -182,14 +474,38 @@ export class AntAI {
     let vy = -Math.sin(angleRad) * power;
 
     const dt = 0.016; // 60fps simulation
+    const effectiveGravity = GRAVITY * gravityMultiplier;
     let minDistance = Infinity;
+    let hitsTerrain = false;
+    let hitsFriendly = false;
 
     // Simulate for up to 10 seconds
     for (let t = 0; t < 10; t += dt) {
       vx += wind * dt * 0.5;
-      vy += GRAVITY * dt;
+      vy += effectiveGravity * dt;
       x += vx * dt;
       y += vy * dt;
+
+      // Check terrain collision
+      const terrainHeight = terrain.getHeightAt(x);
+      const terrainY = MAP_HEIGHT - terrainHeight;
+      if (y >= terrainY) {
+        // Hit terrain - check if we're close enough to target
+        const distToTarget = Math.sqrt((x - targetX) ** 2 + (y - targetY) ** 2);
+        if (distToTarget > explosionRadius * 1.5) {
+          hitsTerrain = true; // Hit terrain too far from target
+        }
+        minDistance = Math.min(minDistance, distToTarget);
+        break;
+      }
+
+      // Check friendly fire (would explosion hit a friendly?)
+      for (const friendly of friendlyAnts) {
+        const distToFriendly = Math.sqrt((x - friendly.x) ** 2 + (y - friendly.y) ** 2);
+        if (distToFriendly < explosionRadius + 15) {
+          hitsFriendly = true;
+        }
+      }
 
       // Check distance to target
       const dist = Math.sqrt((x - targetX) ** 2 + (y - targetY) ** 2);
@@ -197,13 +513,13 @@ export class AntAI {
         minDistance = dist;
       }
 
-      // Stop if projectile goes below target or too far (increased for larger maps)
-      if (y > targetY + 100 || Math.abs(x - startX) > 5000) {
+      // Stop if too far out of bounds
+      if (y > MAP_HEIGHT + 100 || Math.abs(x - startX) > 5000) {
         break;
       }
     }
 
-    return { distance: minDistance };
+    return { distance: minDistance, hitsTerrain, hitsFriendly };
   }
 
   // Add some "thinking" delay based on difficulty
@@ -246,17 +562,14 @@ export class AntAI {
   ): AIMovementPlan | null {
     // Don't move if no energy
     if (shooter.movementEnergy <= 0) {
-      console.log('[AI planMovement] No energy:', shooter.movementEnergy);
       return null;
     }
 
     // Score current position
     const currentScore = this.scorePosition(shooter.x, shooter.y, target, terrain, wind);
-    console.log('[AI planMovement] Current score:', currentScore);
 
     // Find candidate positions (up to 3)
     const candidates = this.findCandidatePositions(shooter, target, terrain, wind);
-    console.log('[AI planMovement] Candidates found:', candidates.length, candidates);
 
     // Find best candidate that's significantly better than current
     let bestCandidate: PositionCandidate | null = null;
@@ -266,13 +579,11 @@ export class AntAI {
       // Check minimum enemy distance
       const distToEnemy = Math.abs(candidate.x - target.x);
       if (distToEnemy < AI_MIN_ENEMY_DISTANCE) {
-        console.log('[AI planMovement] Candidate too close to enemy:', candidate.x, distToEnemy);
         continue;
       }
 
       // Check if significantly better (with minimum improvement threshold)
       const improvement = (candidate.score - currentScore) / Math.max(currentScore, 0.1);
-      console.log('[AI planMovement] Candidate improvement:', candidate.x, 'score:', candidate.score, 'improvement:', improvement);
       if (improvement > AI_MIN_SCORE_IMPROVEMENT) {
         if (!bestCandidate || candidate.score > bestCandidate.score) {
           bestCandidate = candidate;
@@ -281,11 +592,9 @@ export class AntAI {
     }
 
     if (!bestCandidate) {
-      console.log('[AI planMovement] No suitable candidate found');
       return null;
     }
 
-    console.log('[AI planMovement] Best candidate:', bestCandidate);
     return {
       targetX: bestCandidate.x,
       requiresJump: bestCandidate.requiresJump,
@@ -307,7 +616,6 @@ export class AntAI {
     // Calculate max walking distance based on energy
     const maxWalkTime = shooter.movementEnergy / MOVEMENT_ENERGY_COST;
     const maxWalkDistance = maxWalkTime * MOVEMENT_SPEED;
-    console.log('[AI findCandidates] energy:', shooter.movementEnergy, 'maxWalkTime:', maxWalkTime, 'maxWalkDistance:', maxWalkDistance);
 
     // Determine promising directions
     // 1. Towards higher ground
@@ -351,14 +659,10 @@ export class AntAI {
       .filter(d => Math.abs(d) > 20) // Ignore tiny movements
       .slice(0, AI_MAX_CANDIDATE_POSITIONS);
 
-    console.log('[AI findCandidates] sampleDistances:', sampleDistances, 'uniqueDistances:', uniqueDistances);
-
     // Evaluate each candidate
     for (const dist of uniqueDistances) {
       const candidateX = shooter.x + dist;
       const candidateY = MAP_HEIGHT - terrain.getHeightAt(candidateX);
-
-      console.log('[AI findCandidates] Checking candidate at x:', candidateX, 'dist:', dist);
 
       // Check reachability
       const reachability = this.checkReachability(
@@ -369,7 +673,6 @@ export class AntAI {
       );
 
       if (!reachability.reachable) {
-        console.log('[AI findCandidates] Candidate at', candidateX, 'not reachable');
         continue;
       }
 
@@ -398,7 +701,7 @@ export class AntAI {
     x: number,
     y: number,
     target: Ant,
-    _terrain: Terrain,
+    terrain: Terrain,
     wind: number
   ): number {
     let score = 0;
@@ -420,31 +723,35 @@ export class AntAI {
     score += heightDiff * 0.1; // Small bonus for height advantage
 
     // Simulate a shot from this position and see how close it gets
-    const simResult = this.simulateBestShot(x, y, target, wind);
+    const simResult = this.simulateBestShot(x, y, target, wind, terrain);
 
     // Better shot accuracy = higher score
-    if (simResult.minDistance < 30) {
+    if (simResult.minDistance < 30 && !simResult.blocked) {
       score += 50; // Excellent shot possible
-    } else if (simResult.minDistance < 60) {
+    } else if (simResult.minDistance < 60 && !simResult.blocked) {
       score += 30; // Good shot possible
-    } else if (simResult.minDistance < 100) {
+    } else if (simResult.minDistance < 100 && !simResult.blocked) {
       score += 15; // Decent shot possible
+    } else if (simResult.blocked) {
+      score -= 20; // Position has obstructed shots
     }
 
     return score;
   }
 
-  // Simulate best possible shot from a position
+  // Simulate best possible shot from a position (quick version for movement planning)
   private simulateBestShot(
     fromX: number,
     fromY: number,
     target: Ant,
-    wind: number
-  ): { minDistance: number } {
+    wind: number,
+    terrain: Terrain
+  ): { minDistance: number; blocked: boolean } {
     const dx = target.x - fromX;
     const shootingRight = dx > 0;
 
     let bestDistance = Infinity;
+    let allBlocked = true;
 
     // Quick simulation with fewer iterations for performance
     for (let angle = 25; angle <= 75; angle += 10) {
@@ -458,16 +765,21 @@ export class AntAI {
           wind,
           target.x,
           target.y - 10,
-          shootingRight
+          shootingRight,
+          1.0, // Standard gravity for quick check
+          terrain,
+          [], // No friendly fire check for position scoring
+          35  // Standard explosion radius
         );
 
-        if (result.distance < bestDistance) {
+        if (!result.hitsTerrain && result.distance < bestDistance) {
           bestDistance = result.distance;
+          allBlocked = false;
         }
       }
     }
 
-    return { minDistance: bestDistance };
+    return { minDistance: bestDistance, blocked: allBlocked };
   }
 
   // Check if AI can reach a position by walking (and jumping if needed)
@@ -510,7 +822,6 @@ export class AntAI {
           continue;
         } else {
           // Gap too wide
-          console.log('[AI reachability] Gap too wide at', currentX, '-> cannot reach', toX);
           return { reachable: false, requiresJump: false, jumpAtX: null, energyCost: 0 };
         }
       }
@@ -526,7 +837,6 @@ export class AntAI {
           currentX = nextX;
           continue;
         }
-        console.log('[AI reachability] Slope too steep at', currentX, 'angle:', slopeAngle, '-> cannot reach', toX);
         return { reachable: false, requiresJump: false, jumpAtX: null, energyCost: 0 };
       }
 
@@ -536,7 +846,6 @@ export class AntAI {
 
       // Check if we have enough energy
       if (energyUsed > availableEnergy) {
-        console.log('[AI reachability] Not enough energy at', currentX, 'used:', energyUsed, '-> cannot reach', toX);
         return { reachable: false, requiresJump: false, jumpAtX: null, energyCost: 0 };
       }
 
