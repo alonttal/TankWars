@@ -1,5 +1,6 @@
 import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT, TERRAIN_SCALE, PLAYABLE_WIDTH, PLAYABLE_HEIGHT, PLAYABLE_OFFSET_X, PLAYABLE_OFFSET_Y, WATER_LEVEL } from './constants.ts';
 import { WeatherType } from './types/WeatherTypes.ts';
+import { compactArray } from './utils/compactArray.ts';
 
 // Weather visual state for background rendering
 export interface WeatherVisualState {
@@ -167,6 +168,7 @@ export class Terrain {
   private sunX: number;
   private sunY: number;
   private sunPulse: number;
+  private cachedSunCoreGradient: CanvasGradient | null = null;
 
   // Scorch marks from explosions
   private scorchMarks: ScorchMark[];
@@ -916,9 +918,7 @@ export class Terrain {
       particle.opacity -= deltaTime * 0.4;
       particle.length = Math.min(40, particle.length + deltaTime * 10);
     }
-    this.windParticles = this.windParticles.filter(p =>
-      p.opacity > 0 && p.x > -60 && p.x < BASE_WIDTH + 60
-    );
+    compactArray(this.windParticles, p => p.opacity > 0 && p.x > -60 && p.x < BASE_WIDTH + 60);
 
     // Update ambient dust
     for (const dust of this.ambientDust) {
@@ -1506,14 +1506,16 @@ export class Terrain {
     ctx.fill();
 
     // Sun core
-    const coreGradient = ctx.createRadialGradient(
-      this.sunX, this.sunY, 0,
-      this.sunX, this.sunY, 20
-    );
-    coreGradient.addColorStop(0, '#FFFEF0');
-    coreGradient.addColorStop(0.7, '#FFF8DC');
-    coreGradient.addColorStop(1, '#FFE4B5');
-    ctx.fillStyle = coreGradient;
+    if (!this.cachedSunCoreGradient) {
+      this.cachedSunCoreGradient = ctx.createRadialGradient(
+        this.sunX, this.sunY, 0,
+        this.sunX, this.sunY, 20
+      );
+      this.cachedSunCoreGradient.addColorStop(0, '#FFFEF0');
+      this.cachedSunCoreGradient.addColorStop(0.7, '#FFF8DC');
+      this.cachedSunCoreGradient.addColorStop(1, '#FFE4B5');
+    }
+    ctx.fillStyle = this.cachedSunCoreGradient;
     ctx.beginPath();
     ctx.arc(this.sunX, this.sunY, 20, 0, Math.PI * 2);
     ctx.fill();

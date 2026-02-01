@@ -45,9 +45,11 @@ export class EffectsRenderer {
               ctx.strokeStyle = spark.color;
               ctx.globalAlpha = trailAlpha;
               ctx.lineWidth = spark.size * (i / spark.trail.length);
+              const prev = spark.trail.get(i - 1)!;
+              const curr = spark.trail.get(i)!;
               ctx.beginPath();
-              ctx.moveTo(spark.trail[i - 1].x, spark.trail[i - 1].y);
-              ctx.lineTo(spark.trail[i].x, spark.trail[i].y);
+              ctx.moveTo(prev.x, prev.y);
+              ctx.lineTo(curr.x, curr.y);
               ctx.stroke();
             }
           }

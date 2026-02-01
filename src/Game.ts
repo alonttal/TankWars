@@ -28,6 +28,7 @@ import { HUDRenderer } from './rendering/HUDRenderer.ts';
 import { EffectsRenderer } from './rendering/EffectsRenderer.ts';
 import { WeatherRenderer } from './rendering/WeatherRenderer.ts';
 import { WaterRenderer } from './rendering/WaterRenderer.ts';
+import { compactArray } from './utils/compactArray.ts';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -696,9 +697,7 @@ export class Game {
     }
 
     this.projectiles.push(...newProjectiles);
-    this.projectiles = this.projectiles.filter(p =>
-      p.active || p.trail.length > 0 || p.trailParticles.length > 0 || p.impactParticles.length > 0
-    );
+    compactArray(this.projectiles, p => p.active || p.trail.length > 0 || p.trailParticles.length > 0 || p.impactParticles.length > 0);
 
     // Camera follows projectile
     if (cameraFollowProjectile) {
@@ -732,13 +731,13 @@ export class Game {
     for (const burnArea of this.burnAreas) {
       burnArea.update(effectiveDelta, this.ants, this.terrain);
     }
-    this.burnAreas = this.burnAreas.filter(b => !b.isComplete());
+    compactArray(this.burnAreas, b => !b.isComplete());
 
     // Update explosions
     for (const explosion of this.explosions) {
       explosion.update(effectiveDelta);
     }
-    this.explosions = this.explosions.filter(e => e.active);
+    compactArray(this.explosions, e => e.active);
 
     // Update floating texts
     this.effects.updateFloatingTexts(effectiveDelta);

@@ -1,6 +1,8 @@
 import { EXPLOSION_RADIUS, EXPLOSION_DAMAGE_RADIUS, KNOCKBACK_DAMAGE_MULTIPLIER, KNOCKBACK_MIN_FORCE, KNOCKBACK_MAX_FORCE, KNOCKBACK_DAMAGE_THRESHOLD } from './constants.ts';
 import { Ant } from './Ant.ts';
 import { Terrain } from './Terrain.ts';
+import { compactArray } from './utils/compactArray.ts';
+import { CircularBuffer } from './utils/CircularBuffer.ts';
 
 interface Particle {
   x: number;
@@ -33,7 +35,7 @@ interface EmberParticle {
   life: number;
   maxLife: number;
   size: number;
-  trail: { x: number; y: number }[];
+  trail: CircularBuffer<{ x: number; y: number }>;
   color: string;
 }
 
@@ -163,7 +165,7 @@ export class Explosion {
         life: 0.8 + Math.random() * 1.2,
         maxLife: 2.0,
         size: 2 + Math.random() * 3,
-        trail: [],
+        trail: new CircularBuffer<{ x: number; y: number }>(8),
         color: emberColors[Math.floor(Math.random() * emberColors.length)],
       });
     }
@@ -342,7 +344,7 @@ export class Explosion {
     }
 
     // Remove dead particles
-    this.particles = this.particles.filter(p => p.life > 0);
+    compactArray(this.particles, p => p.life > 0);
 
     // Update debris chunks
     for (const debris of this.debrisChunks) {
@@ -352,15 +354,12 @@ export class Explosion {
       debris.rotation += debris.rotationSpeed * deltaTime;
       debris.life -= deltaTime;
     }
-    this.debrisChunks = this.debrisChunks.filter(d => d.life > 0);
+    compactArray(this.debrisChunks, d => d.life > 0);
 
     // Update ember particles with trails
     for (const ember of this.emberParticles) {
       // Store trail position
       ember.trail.push({ x: ember.x, y: ember.y });
-      if (ember.trail.length > 8) {
-        ember.trail.shift();
-      }
 
       ember.x += ember.vx * deltaTime;
       ember.y += ember.vy * deltaTime;
@@ -368,7 +367,7 @@ export class Explosion {
       ember.vx *= 0.99; // Air resistance
       ember.life -= deltaTime;
     }
-    this.emberParticles = this.emberParticles.filter(e => e.life > 0);
+    compactArray(this.emberParticles, e => e.life > 0);
 
     // Update smoke wave particles
     for (const smoke of this.smokeWaveParticles) {
@@ -377,7 +376,7 @@ export class Explosion {
       smoke.size += deltaTime * 20; // Expand
       smoke.life -= deltaTime;
     }
-    this.smokeWaveParticles = this.smokeWaveParticles.filter(s => s.life > 0);
+    compactArray(this.smokeWaveParticles, s => s.life > 0);
 
     // Check if explosion is complete
     const hasActiveParticles = this.particles.length > 0 ||
@@ -468,12 +467,9 @@ export class Explosion {
     }
 
     // Draw particles by type (smoke first, then dust, then fire on top)
-    const smokeParticles = this.particles.filter(p => p.type === 'smoke');
-    const dustParticles = this.particles.filter(p => p.type === 'dust');
-    const fireParticles = this.particles.filter(p => p.type === 'fire');
-
     // Smoke particles (gray, semi-transparent)
-    for (const particle of smokeParticles) {
+    for (const particle of this.particles) {
+      if (particle.type !== 'smoke') continue;
       const lifeRatio = particle.life / particle.maxLife;
       const alpha = lifeRatio * 0.4;
       const gray = 60 + Math.random() * 30;
@@ -484,7 +480,8 @@ export class Explosion {
     }
 
     // Dust particles (brown/tan)
-    for (const particle of dustParticles) {
+    for (const particle of this.particles) {
+      if (particle.type !== 'dust') continue;
       const lifeRatio = particle.life / particle.maxLife;
       const alpha = lifeRatio * 0.6;
       ctx.fillStyle = `rgba(139, 90, 43, ${alpha})`;
@@ -494,7 +491,8 @@ export class Explosion {
     }
 
     // Fire particles (orange/yellow)
-    for (const particle of fireParticles) {
+    for (const particle of this.particles) {
+      if (particle.type !== 'fire') continue;
       const lifeRatio = particle.life / particle.maxLife;
       const alpha = lifeRatio;
       const green = 100 + Math.random() * 100;
@@ -544,9 +542,10 @@ export class Explosion {
         for (let i = 1; i < ember.trail.length; i++) {
           const trailAlpha = alpha * (i / ember.trail.length) * 0.6;
           const trailSize = ember.size * (i / ember.trail.length);
+          const pt = ember.trail.get(i)!;
           ctx.fillStyle = `rgba(255, 150, 50, ${trailAlpha})`;
           ctx.beginPath();
-          ctx.arc(ember.trail[i].x, ember.trail[i].y, trailSize, 0, Math.PI * 2);
+          ctx.arc(pt.x, pt.y, trailSize, 0, Math.PI * 2);
           ctx.fill();
         }
       }

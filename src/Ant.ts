@@ -43,6 +43,7 @@ import {
 import { AntRenderer, AntRenderData } from './rendering/AntRenderer.ts';
 import { AntDeathSystem, AntDeathData, DeathParticles } from './systems/AntDeathSystem.ts';
 import { soundManager } from './Sound.ts';
+import { compactArray } from './utils/compactArray.ts';
 
 export class Ant {
   x: number;
@@ -671,7 +672,7 @@ export class Ant {
         dmgNum.scale = dmgNum.isCritical ? 1.5 + (1 - (lifeRatio - 0.8) / 0.2) * 0.3 : 1.0 + (1 - (lifeRatio - 0.8) / 0.2) * 0.2;
       }
     }
-    this.damageNumbers = this.damageNumbers.filter(d => d.life > 0);
+    compactArray(this.damageNumbers, d => d.life > 0);
 
     if (this.isAlive && this.health < 25) {
       this.fireSpawnTimer -= deltaTime;
@@ -696,7 +697,7 @@ export class Ant {
       particle.size *= 0.97;
       particle.life -= deltaTime;
     }
-    this.fireParticles = this.fireParticles.filter(p => p.life > 0);
+    compactArray(this.fireParticles, p => p.life > 0);
 
     for (const particle of this.chargeParticles) {
       particle.distance -= particle.speed * deltaTime;
@@ -706,7 +707,7 @@ export class Ant {
       particle.x = barrelEnd.x + Math.cos(particle.angle) * particle.distance;
       particle.y = barrelEnd.y + Math.sin(particle.angle) * particle.distance;
     }
-    this.chargeParticles = this.chargeParticles.filter(p => p.life > 0 && p.distance > 0);
+    compactArray(this.chargeParticles, p => p.life > 0 && p.distance > 0);
 
     if (this.muzzleFlashTime > 0) {
       this.muzzleFlashTime -= deltaTime;
@@ -724,7 +725,7 @@ export class Ant {
       particle.size *= 0.92;
       particle.life -= deltaTime;
     }
-    this.muzzleParticles = this.muzzleParticles.filter(p => p.life > 0);
+    compactArray(this.muzzleParticles, p => p.life > 0);
 
     for (const particle of this.sparkParticles) {
       particle.x += particle.vx * deltaTime;
@@ -732,7 +733,7 @@ export class Ant {
       particle.vy += 300 * deltaTime;
       particle.life -= deltaTime;
     }
-    this.sparkParticles = this.sparkParticles.filter(p => p.life > 0);
+    compactArray(this.sparkParticles, p => p.life > 0);
 
     if (this.isAlive && this.health < 50) {
       this.smokeTimer -= deltaTime;
@@ -762,7 +763,7 @@ export class Ant {
       particle.size += deltaTime * 10;
       particle.life -= deltaTime;
     }
-    this.smokeParticles = this.smokeParticles.filter(p => p.life > 0);
+    compactArray(this.smokeParticles, p => p.life > 0);
 
     for (const ring of this.smokeRings) {
       ring.radius += deltaTime * 60;
@@ -770,7 +771,7 @@ export class Ant {
       ring.x += Math.cos(ring.angle) * 30 * deltaTime;
       ring.y -= Math.sin(ring.angle) * 30 * deltaTime;
     }
-    this.smokeRings = this.smokeRings.filter(r => r.alpha > 0);
+    compactArray(this.smokeRings, r => r.alpha > 0);
 
     if (this.destructionFlash > 0) {
       this.destructionFlash -= deltaTime * 2;

@@ -1,5 +1,7 @@
 import { BASE_WIDTH, BASE_HEIGHT } from '../constants.ts';
 import { ConfettiParticle, Firework, FloatingText } from '../types/GameTypes.ts';
+import { compactArray } from '../utils/compactArray.ts';
+import { CircularBuffer } from '../utils/CircularBuffer.ts';
 
 export class EffectsSystem {
   // Screen flash
@@ -59,7 +61,7 @@ export class EffectsSystem {
       ft.vy += 10 * effectiveDelta; // Slight deceleration
       ft.life -= effectiveDelta;
     }
-    this.floatingTexts = this.floatingTexts.filter(ft => ft.life > 0);
+    compactArray(this.floatingTexts, ft => ft.life > 0);
   }
 
   // Confetti methods
@@ -89,7 +91,7 @@ export class EffectsSystem {
       particle.rotation += particle.rotationSpeed * deltaTime;
       particle.life -= deltaTime;
     }
-    this.confetti = this.confetti.filter(p => p.life > 0 && p.y < BASE_HEIGHT + 50);
+    compactArray(this.confetti, p => p.life > 0 && p.y < BASE_HEIGHT + 50);
   }
 
   // Firework methods
@@ -151,7 +153,7 @@ export class EffectsSystem {
               life: 1.0 + Math.random() * 0.5,
               color: colorVariation,
               size: 2 + Math.random() * 2,
-              trail: [],
+              trail: new CircularBuffer<{ x: number; y: number }>(5),
             });
           }
         }
@@ -160,9 +162,6 @@ export class EffectsSystem {
         for (const spark of firework.sparks) {
           // Store trail
           spark.trail.push({ x: spark.x, y: spark.y });
-          if (spark.trail.length > 5) {
-            spark.trail.shift();
-          }
 
           spark.x += spark.vx * deltaTime;
           spark.y += spark.vy * deltaTime;
@@ -171,12 +170,12 @@ export class EffectsSystem {
           spark.life -= deltaTime;
           spark.size *= 0.995;
         }
-        firework.sparks = firework.sparks.filter(s => s.life > 0);
+        compactArray(firework.sparks, s => s.life > 0);
       }
     }
 
     // Remove completed fireworks
-    this.fireworks = this.fireworks.filter(f => !f.exploded || f.sparks.length > 0);
+    compactArray(this.fireworks, f => !f.exploded || f.sparks.length > 0);
   }
 
   clear(): void {

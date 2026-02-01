@@ -17,6 +17,7 @@ import {
   DissolveParticle,
   DeathAnimationState,
 } from '../types/AntParticleTypes.ts';
+import { compactArray } from '../utils/compactArray.ts';
 // Strategy pattern infrastructure is set up in ./death/
 // These utilities can be used when extracting individual death effects:
 // import { drawPixel, parseColor, lightenColor, darkenColor, getGroundYAt } from './death/DeathRenderingUtils.ts';
@@ -577,7 +578,7 @@ export class AntDeathSystem {
       p.vy -= 20 * deltaTime;
       p.alpha -= deltaTime * 1.5;
     }
-    particles.dissolveParticles = particles.dissolveParticles.filter(p => p.alpha > 0);
+    compactArray(particles.dissolveParticles, p => p.alpha > 0);
   }
 
   private updateDrownDeath(
@@ -640,7 +641,7 @@ export class AntDeathSystem {
       }
       part.life -= deltaTime;
     }
-    particles.bodyParts = particles.bodyParts.filter(p => p.life > 0);
+    compactArray(particles.bodyParts, p => p.life > 0);
 
     // Update ethereal wisps
     if (particles.ghostParticle) {
@@ -654,7 +655,7 @@ export class AntDeathSystem {
         wisp.alpha = particles.ghostParticle.alpha * 0.7;
       }
     }
-    particles.etherealWisps = particles.etherealWisps.filter(w => w.alpha > 0.05);
+    compactArray(particles.etherealWisps, w => w.alpha > 0.05);
 
     // Update goo particles
     for (const goo of particles.gooParticles) {
@@ -680,7 +681,7 @@ export class AntDeathSystem {
       }
       goo.life -= deltaTime * 0.2;
     }
-    particles.gooParticles = particles.gooParticles.filter(g => g.life > 0);
+    compactArray(particles.gooParticles, g => g.life > 0);
 
     // Fade splat marks slowly
     for (const splat of particles.splatMarks) {
@@ -688,7 +689,7 @@ export class AntDeathSystem {
         splat.alpha -= deltaTime * 0.1;
       }
     }
-    particles.splatMarks = particles.splatMarks.filter(s => s.alpha > 0);
+    compactArray(particles.splatMarks, s => s.alpha > 0);
 
     // Update ember particles
     for (const ember of particles.emberParticles) {
@@ -699,7 +700,7 @@ export class AntDeathSystem {
       ember.life -= deltaTime;
       ember.brightness = 0.5 + Math.random() * 0.5;
     }
-    particles.emberParticles = particles.emberParticles.filter(e => e.life > 0);
+    compactArray(particles.emberParticles, e => e.life > 0);
 
     // Update dust particles
     for (const dust of particles.dustParticles) {
@@ -713,7 +714,7 @@ export class AntDeathSystem {
         }
       }
     }
-    particles.dustParticles = particles.dustParticles.filter(d => d.alpha > 0 || state.deathAnimationStage < 3);
+    compactArray(particles.dustParticles, d => d.alpha > 0 || state.deathAnimationStage < 3);
 
     // Update lightning arcs
     for (const arc of particles.lightningArcs) {
@@ -731,7 +732,7 @@ export class AntDeathSystem {
         }
       }
     }
-    particles.lightningArcs = particles.lightningArcs.filter(a => a.life > 0);
+    compactArray(particles.lightningArcs, a => a.life > 0);
 
     // Update shockwave rings
     for (const ring of particles.shockwaveRings) {
@@ -739,7 +740,7 @@ export class AntDeathSystem {
       ring.radius += expandSpeed * deltaTime;
       ring.alpha -= deltaTime * 2.0;
     }
-    particles.shockwaveRings = particles.shockwaveRings.filter(r => r.alpha > 0 && r.radius < r.maxRadius);
+    compactArray(particles.shockwaveRings, r => r.alpha > 0 && r.radius < r.maxRadius);
 
     // Update destruction debris
     for (const debris of particles.destructionDebris) {
@@ -749,7 +750,7 @@ export class AntDeathSystem {
       debris.rotation += debris.rotationSpeed * deltaTime;
       debris.life -= deltaTime;
     }
-    particles.destructionDebris = particles.destructionDebris.filter(d => d.life > 0);
+    compactArray(particles.destructionDebris, d => d.life > 0);
   }
 
   // Render destroyed ant

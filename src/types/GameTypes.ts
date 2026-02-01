@@ -1,3 +1,5 @@
+import { CircularBuffer } from '../utils/CircularBuffer.ts';
+
 export type GameState = 'MENU' | 'INTRO_PAN' | 'PLAYING' | 'AI_THINKING' | 'AI_MOVING' | 'FIRING' | 'POWERUP_FALLING' | 'LIGHTNING_STRIKE' | 'PAUSED' | 'SETTINGS' | 'GAME_OVER';
 export type GameMode = 'single' | 'multi';
 
@@ -54,7 +56,7 @@ export interface FireworkSpark {
   life: number;
   color: string;
   size: number;
-  trail: { x: number; y: number }[];
+  trail: CircularBuffer<{ x: number; y: number }>;
 }
 
 export interface HUDHealthAnimation {

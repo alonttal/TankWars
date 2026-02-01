@@ -6,8 +6,49 @@ export class WeatherRenderer {
   // Animation time for procedural effects
   private animationTime: number = 0;
 
+  // Cached gradients (created on first use)
+  private cachedRainGradient: CanvasGradient | null = null;
+  private cachedWetGroundGradient: CanvasGradient | null = null;
+  private cachedSnowAirGradient: CanvasGradient | null = null;
+  private cachedSnowGroundGradient: CanvasGradient | null = null;
+  private cachedDustSkyGradient: CanvasGradient | null = null;
+  private cachedSandGroundGradient: CanvasGradient | null = null;
+
+  private ensureGradients(ctx: CanvasRenderingContext2D): void {
+    if (this.cachedRainGradient) return; // Already initialized
+
+    this.cachedRainGradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
+    this.cachedRainGradient.addColorStop(0, 'rgba(60, 70, 90, 0.1)');
+    this.cachedRainGradient.addColorStop(0.4, 'rgba(70, 80, 100, 0.3)');
+    this.cachedRainGradient.addColorStop(1, 'rgba(50, 60, 80, 0.4)');
+
+    this.cachedWetGroundGradient = ctx.createLinearGradient(0, MAP_HEIGHT - 20, 0, MAP_HEIGHT);
+    this.cachedWetGroundGradient.addColorStop(0, 'rgba(80, 100, 130, 0)');
+    this.cachedWetGroundGradient.addColorStop(1, 'rgba(80, 100, 130, 0.3)');
+
+    this.cachedSnowAirGradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
+    this.cachedSnowAirGradient.addColorStop(0, 'rgba(200, 210, 230, 0.2)');
+    this.cachedSnowAirGradient.addColorStop(1, 'rgba(180, 190, 210, 0.1)');
+
+    this.cachedSnowGroundGradient = ctx.createLinearGradient(0, MAP_HEIGHT - 30, 0, MAP_HEIGHT);
+    this.cachedSnowGroundGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    this.cachedSnowGroundGradient.addColorStop(0.6, 'rgba(240, 245, 255, 0.2)');
+    this.cachedSnowGroundGradient.addColorStop(1, 'rgba(230, 240, 255, 0.35)');
+
+    this.cachedDustSkyGradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
+    this.cachedDustSkyGradient.addColorStop(0, 'rgba(170, 130, 70, 0.15)');
+    this.cachedDustSkyGradient.addColorStop(0.5, 'rgba(190, 145, 85, 0.3)');
+    this.cachedDustSkyGradient.addColorStop(1, 'rgba(170, 125, 65, 0.4)');
+
+    this.cachedSandGroundGradient = ctx.createLinearGradient(0, MAP_HEIGHT - 50, 0, MAP_HEIGHT);
+    this.cachedSandGroundGradient.addColorStop(0, 'rgba(200, 160, 100, 0)');
+    this.cachedSandGroundGradient.addColorStop(0.5, 'rgba(210, 170, 110, 0.25)');
+    this.cachedSandGroundGradient.addColorStop(1, 'rgba(190, 150, 90, 0.4)');
+  }
+
   // Render weather particles in BACKGROUND layer (behind terrain and ants)
   renderWeatherBackground(ctx: CanvasRenderingContext2D, weather: WeatherSystem, wind: number): void {
+    this.ensureGradients(ctx);
     this.animationTime += 0.016; // ~60fps
 
     const activeWeather = weather.getTransitionProgress() >= 0.5
@@ -80,17 +121,14 @@ export class WeatherRenderer {
     // Distant rain atmosphere - darker, moodier
     ctx.save();
     ctx.globalAlpha = 0.25;
-    const rainGradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
-    rainGradient.addColorStop(0, 'rgba(60, 70, 90, 0.1)');
-    rainGradient.addColorStop(0.4, 'rgba(70, 80, 100, 0.3)');
-    rainGradient.addColorStop(1, 'rgba(50, 60, 80, 0.4)');
-    ctx.fillStyle = rainGradient;
+    ctx.fillStyle = this.cachedRainGradient!;
     ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
     ctx.restore();
 
     // Background rain (distant, smaller, fainter) - only 40% of drops
-    const bgDrops = weather.rainDrops.filter((_, i) => i % 5 < 2);
-    for (const drop of bgDrops) {
+    for (let _i = 0; _i < weather.rainDrops.length; _i++) {
+      if (_i % 5 >= 2) continue;
+      const drop = weather.rainDrops[_i];
       const thickness = 0.5 + (drop.speed / 600) * 0.3;
       const length = drop.length * 0.5; // Shorter drops in background
 
@@ -116,8 +154,9 @@ export class WeatherRenderer {
     const windStrength = Math.abs(wind);
 
     // Foreground rain (closer, sharper) - 60% of drops
-    const fgDrops = weather.rainDrops.filter((_, i) => i % 5 >= 2);
-    for (const drop of fgDrops) {
+    for (let _i = 0; _i < weather.rainDrops.length; _i++) {
+      if (_i % 5 < 2) continue;
+      const drop = weather.rainDrops[_i];
       // Much thinner drops
       const thickness = 0.8 + (drop.speed / 600) * 0.4;
       const length = drop.length * 0.7; // Slightly shorter
@@ -172,10 +211,7 @@ export class WeatherRenderer {
     // Subtle wet ground effect
     ctx.save();
     ctx.globalAlpha = 0.1;
-    const wetGround = ctx.createLinearGradient(0, MAP_HEIGHT - 20, 0, MAP_HEIGHT);
-    wetGround.addColorStop(0, 'rgba(80, 100, 130, 0)');
-    wetGround.addColorStop(1, 'rgba(80, 100, 130, 0.3)');
-    ctx.fillStyle = wetGround;
+    ctx.fillStyle = this.cachedWetGroundGradient!;
     ctx.fillRect(0, MAP_HEIGHT - 20, MAP_WIDTH, 20);
     ctx.restore();
   }
@@ -185,16 +221,14 @@ export class WeatherRenderer {
     // Soft wintery atmosphere
     ctx.save();
     ctx.globalAlpha = 0.08;
-    const snowAir = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
-    snowAir.addColorStop(0, 'rgba(200, 210, 230, 0.2)');
-    snowAir.addColorStop(1, 'rgba(180, 190, 210, 0.1)');
-    ctx.fillStyle = snowAir;
+    ctx.fillStyle = this.cachedSnowAirGradient!;
     ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
     ctx.restore();
 
     // Background snowflakes (distant, smaller, blurred) - 40% of flakes
-    const bgFlakes = weather.snowflakes.filter((_, i) => i % 5 < 2);
-    for (const flake of bgFlakes) {
+    for (let _i = 0; _i < weather.snowflakes.length; _i++) {
+      if (_i % 5 >= 2) continue;
+      const flake = weather.snowflakes[_i];
       ctx.save();
       ctx.translate(flake.x * 0.97, flake.y); // Slight parallax
       ctx.globalAlpha = flake.opacity * 0.5;
@@ -213,8 +247,9 @@ export class WeatherRenderer {
 
   private renderSnowForeground(ctx: CanvasRenderingContext2D, weather: WeatherSystem): void {
     // Foreground snowflakes (closer, detailed) - 60% of flakes
-    const fgFlakes = weather.snowflakes.filter((_, i) => i % 5 >= 2);
-    for (const flake of fgFlakes) {
+    for (let _i = 0; _i < weather.snowflakes.length; _i++) {
+      if (_i % 5 < 2) continue;
+      const flake = weather.snowflakes[_i];
       ctx.save();
       ctx.translate(flake.x, flake.y);
       ctx.rotate(flake.rotation);
@@ -271,11 +306,7 @@ export class WeatherRenderer {
     // Snow accumulation at ground - subtle
     ctx.save();
     ctx.globalAlpha = 0.15;
-    const snowGround = ctx.createLinearGradient(0, MAP_HEIGHT - 30, 0, MAP_HEIGHT);
-    snowGround.addColorStop(0, 'rgba(255, 255, 255, 0)');
-    snowGround.addColorStop(0.6, 'rgba(240, 245, 255, 0.2)');
-    snowGround.addColorStop(1, 'rgba(230, 240, 255, 0.35)');
-    ctx.fillStyle = snowGround;
+    ctx.fillStyle = this.cachedSnowGroundGradient!;
     ctx.fillRect(0, MAP_HEIGHT - 30, MAP_WIDTH, 30);
     ctx.restore();
   }
@@ -332,11 +363,7 @@ export class WeatherRenderer {
     // Dusty atmosphere
     ctx.save();
     ctx.globalAlpha = 0.25;
-    const dustSky = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
-    dustSky.addColorStop(0, 'rgba(170, 130, 70, 0.15)');
-    dustSky.addColorStop(0.5, 'rgba(190, 145, 85, 0.3)');
-    dustSky.addColorStop(1, 'rgba(170, 125, 65, 0.4)');
-    ctx.fillStyle = dustSky;
+    ctx.fillStyle = this.cachedDustSkyGradient!;
     ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
     ctx.restore();
 
@@ -378,8 +405,9 @@ export class WeatherRenderer {
     ctx.restore();
 
     // Background sand particles (40%)
-    const bgParticles = weather.sandParticles.filter((_, i) => i % 5 < 2);
-    for (const particle of bgParticles) {
+    for (let _i = 0; _i < weather.sandParticles.length; _i++) {
+      if (_i % 5 >= 2) continue;
+      const particle = weather.sandParticles[_i];
       ctx.save();
       ctx.globalAlpha = particle.opacity * 0.3;
       ctx.fillStyle = '#B89860';
@@ -393,8 +421,9 @@ export class WeatherRenderer {
   private renderSandForeground(ctx: CanvasRenderingContext2D, weather: WeatherSystem, _wind: number): void {
 
     // Foreground sand particles with trails (60%)
-    const fgParticles = weather.sandParticles.filter((_, i) => i % 5 >= 2);
-    for (const particle of fgParticles) {
+    for (let _i = 0; _i < weather.sandParticles.length; _i++) {
+      if (_i % 5 < 2) continue;
+      const particle = weather.sandParticles[_i];
       // Motion blur trail
       if (particle.trail.length > 1) {
         ctx.save();
@@ -448,11 +477,7 @@ export class WeatherRenderer {
     // Sand accumulation at ground
     ctx.save();
     ctx.globalAlpha = 0.2;
-    const sandGround = ctx.createLinearGradient(0, MAP_HEIGHT - 50, 0, MAP_HEIGHT);
-    sandGround.addColorStop(0, 'rgba(200, 160, 100, 0)');
-    sandGround.addColorStop(0.5, 'rgba(210, 170, 110, 0.25)');
-    sandGround.addColorStop(1, 'rgba(190, 150, 90, 0.4)');
-    ctx.fillStyle = sandGround;
+    ctx.fillStyle = this.cachedSandGroundGradient!;
     ctx.fillRect(0, MAP_HEIGHT - 50, MAP_WIDTH, 50);
     ctx.restore();
   }

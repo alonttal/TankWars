@@ -7,6 +7,8 @@ import {
 import { Terrain } from './Terrain.ts';
 import { Ant } from './Ant.ts';
 import { WeaponConfig, WEAPON_CONFIGS } from './weapons/WeaponTypes.ts';
+import { compactArray } from './utils/compactArray.ts';
+import { CircularBuffer } from './utils/CircularBuffer.ts';
 
 export interface ProjectileState {
   active: boolean;
@@ -48,12 +50,13 @@ export class Projectile {
   vx: number;
   vy: number;
   active: boolean;
-  trail: { x: number; y: number }[];
+  trail: CircularBuffer<{ x: number; y: number }>;
   owner: Ant;
   time: number; // For pulsing glow animation
   trailParticles: TrailParticle[];
   impactParticles: ImpactParticle[];
   private trailSpawnTimer: number;
+  private _state: ProjectileState;
 
   // Weapon system
   weaponConfig: WeaponConfig;
@@ -87,16 +90,31 @@ export class Projectile {
     this.vy = -Math.sin(angleRad) * adjustedPower; // Negative because Y increases downward
 
     this.active = true;
-    this.trail = [];
+    this.trail = new CircularBuffer<{ x: number; y: number }>(50);
     this.time = 0;
     this.trailParticles = [];
     this.impactParticles = [];
     this.trailSpawnTimer = 0;
+    this._state = { active: false, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
 
     // Weapon-specific initialization
     this.bouncesRemaining = weaponConfig.maxBounces;
     this.hasReachedApex = false;
     this.previousVy = this.vy;
+  }
+
+  private returnState(active: boolean, hit: boolean, hitWater: boolean, hitX: number, hitY: number): ProjectileState {
+    this._state.active = active;
+    this._state.hit = hit;
+    this._state.hitWater = hitWater;
+    this._state.hitX = hitX;
+    this._state.hitY = hitY;
+    this._state.shouldCluster = false;
+    this._state.clusterX = 0;
+    this._state.clusterY = 0;
+    this._state.clusterVx = 0;
+    this._state.clusterVy = 0;
+    return this._state;
   }
 
   private spawnImpactParticles(x: number, y: number): void {
@@ -186,7 +204,7 @@ export class Projectile {
       // Still update trail and impact particles even when projectile is gone
       this.updateTrailParticles(deltaTime);
       this.updateImpactParticles(deltaTime);
-      return { active: false, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+      return this.returnState(false, false, false, 0, 0);
     }
 
     // Update animation time
@@ -194,9 +212,6 @@ export class Projectile {
 
     // Store trail point
     this.trail.push({ x: this.x, y: this.y });
-    if (this.trail.length > 50) {
-      this.trail.shift();
-    }
 
     // Spawn trail particles with weapon-specific colors
     this.trailSpawnTimer -= deltaTime;
@@ -245,16 +260,16 @@ export class Projectile {
     // Check water collision (before out-of-bounds)
     if (this.y >= WATER_LEVEL) {
       this.active = false;
-      this.trail = [];
-      return { active: false, hit: false, hitWater: true, hitX: this.x, hitY: WATER_LEVEL, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+      this.trail.clear();
+      return this.returnState(false, false, true, this.x, WATER_LEVEL);
     }
 
     // Check if out of bounds (very lenient - allow projectiles to go off-screen)
     // Only deactivate if WAY off screen (500px) or below the map
     if (this.x < -500 || this.x > MAP_WIDTH + 500 || this.y > MAP_HEIGHT + 100) {
       this.active = false;
-      this.trail = []; // Clear trail on deactivation
-      return { active: false, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+      this.trail.clear(); // Clear trail on deactivation
+      return this.returnState(false, false, false, 0, 0);
     }
 
     // Check terrain collision (ground and floating platforms)
@@ -283,21 +298,21 @@ export class Projectile {
         if (speed < 30) {
           // Too slow, explode here
           this.active = false;
-          this.trail = [];
+          this.trail.clear();
           this.spawnImpactParticles(this.x, this.y);
-          return { active: false, hit: true, hitWater: false, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+          return this.returnState(false, true, false, this.x, this.y);
         }
 
         // Continue bouncing - projectile stays active
-        return { active: true, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+        return this.returnState(true, false, false, 0, 0);
       }
 
       // No bounces remaining - explode
       this.active = false;
-      this.trail = []; // Clear trail on hit
+      this.trail.clear(); // Clear trail on hit
       // Spawn impact dust burst
       this.spawnImpactParticles(this.x, this.y);
-      return { active: false, hit: true, hitWater: false, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+      return this.returnState(false, true, false, this.x, this.y);
     }
 
     // Check wall collision (sides of map) - bounce off walls
@@ -319,12 +334,12 @@ export class Projectile {
 
       if (distance < 25) { // Hit radius
         this.active = false;
-        this.trail = []; // Clear trail on hit
-        return { active: false, hit: true, hitWater: false, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+        this.trail.clear(); // Clear trail on hit
+        return this.returnState(false, true, false, this.x, this.y);
       }
     }
 
-    return { active: true, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+    return this.returnState(true, false, false, 0, 0);
   }
 
   private updateTrailParticles(deltaTime: number): void {
@@ -343,7 +358,7 @@ export class Projectile {
       particle.life -= deltaTime;
     }
 
-    this.trailParticles = this.trailParticles.filter(p => p.life > 0);
+    compactArray(this.trailParticles, p => p.life > 0);
   }
 
   private updateImpactParticles(deltaTime: number): void {
@@ -354,7 +369,7 @@ export class Projectile {
       particle.vx *= 0.98; // Air resistance
       particle.life -= deltaTime;
     }
-    this.impactParticles = this.impactParticles.filter(p => p.life > 0);
+    compactArray(this.impactParticles, p => p.life > 0);
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -392,18 +407,18 @@ export class Projectile {
         const width = 1 + (i / this.trail.length) * 2;
         ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
         ctx.lineWidth = width;
+        const prev = this.trail.get(i - 1)!;
+        const curr = this.trail.get(i)!;
         ctx.beginPath();
-        ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
-        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+        ctx.moveTo(prev.x, prev.y);
+        ctx.lineTo(curr.x, curr.y);
         ctx.stroke();
       }
     }
 
-    // Draw trail particles (smoke first, then fire)
-    const smokeParticles = this.trailParticles.filter(p => p.type === 'smoke');
-    const fireParticles = this.trailParticles.filter(p => p.type === 'fire');
-
-    for (const particle of smokeParticles) {
+    // Draw trail particles (smoke first, then fire on top)
+    for (const particle of this.trailParticles) {
+      if (particle.type !== 'smoke') continue;
       const alpha = (particle.life / 0.8) * 0.4;
       const gray = 100 + Math.floor(Math.random() * 50);
       ctx.fillStyle = `rgba(${gray}, ${gray}, ${gray}, ${alpha})`;
@@ -412,7 +427,8 @@ export class Projectile {
       ctx.fill();
     }
 
-    for (const particle of fireParticles) {
+    for (const particle of this.trailParticles) {
+      if (particle.type !== 'fire') continue;
       const alpha = particle.life / 0.4;
       // Use weapon trail color for fire particles
       ctx.fillStyle = `rgba(${color.r}, ${Math.floor(color.g * 0.7)}, 0, ${alpha})`;

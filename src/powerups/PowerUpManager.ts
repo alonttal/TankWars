@@ -3,6 +3,7 @@ import { PowerUp } from './PowerUp.ts';
 import { PowerUpType, POWERUP_CONFIGS, POWERUP_ORDER, getTotalSpawnWeight } from './PowerUpTypes.ts';
 import { Terrain } from '../Terrain.ts';
 import { Ant } from '../Ant.ts';
+import { compactArray } from '../utils/compactArray.ts';
 
 export class PowerUpManager {
   private powerUps: PowerUp[];
@@ -143,7 +144,7 @@ export class PowerUpManager {
     }
 
     // Remove completed power-ups
-    this.powerUps = this.powerUps.filter(p => !p.isComplete());
+    compactArray(this.powerUps, p => !p.isComplete());
 
     return collectedInfo;
   }
