@@ -543,9 +543,11 @@ export class Game {
       if (currentAnt && currentAnt.isAlive) {
         const wasAliveBeforeMove = currentAnt.isAlive;
         currentAnt.updateMovement(effectiveDelta, this.terrain);
-        // Detect drowning during player turn
+        // Detect drowning during player turn — transition to FIRING so endTurn() runs
         if (wasAliveBeforeMove && !currentAnt.isAlive && currentAnt.getDeathType() === 'drown') {
           this.waterRenderer.spawnSplash(currentAnt.x, currentAnt.y, 1.5);
+          this.state = 'FIRING';
+          this.fireButton.disabled = true;
         }
       }
     }
@@ -567,7 +569,13 @@ export class Game {
 
     // AI movement
     if (this.state === 'AI_MOVING') {
+      const aiAnt = this.ants[this.currentPlayerIndex];
+      const aiWasAlive = aiAnt?.isAlive ?? false;
       this.aiManager.updateAIMovement(effectiveDelta);
+      // Detect AI ant drowning during movement
+      if (aiWasAlive && aiAnt && !aiAnt.isAlive && aiAnt.getDeathType() === 'drown') {
+        this.waterRenderer.spawnSplash(aiAnt.x, aiAnt.y, 1.5);
+      }
     }
 
     // Firing state

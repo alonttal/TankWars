@@ -152,6 +152,12 @@ export class AIManager {
     // Update ant movement physics
     aiAnt.updateMovement(deltaTime, this.callbacks.getTerrain());
 
+    // Check if ant died during movement (e.g. drowned)
+    if (!aiAnt.isAlive) {
+      this.finishAIMovement();
+      return;
+    }
+
     // Check if we need to jump
     if (this.aiMovementPlan.requiresJump && this.aiMovementPlan.jumpAtX !== null) {
       const jumpDistance = Math.abs(aiAnt.x - this.aiMovementPlan.jumpAtX);
@@ -194,9 +200,8 @@ export class AIManager {
     if (aiAnt && aiAnt.isAlive && this.aiTarget) {
       this.prepareAIShot(aiAnt, this.aiTarget);
     } else {
-      // Fallback - end turn if something went wrong
-      this.callbacks.setState('PLAYING');
-      this.callbacks.endTurn();
+      // Ant died (e.g. drowned) or no target - transition to FIRING so endTurn() runs
+      this.callbacks.setState('FIRING');
     }
   }
 
