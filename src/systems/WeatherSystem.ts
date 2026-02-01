@@ -166,16 +166,49 @@ export class WeatherSystem {
     this.fogLayers = [];
     for (let i = 0; i < layerCount; i++) {
       const depth = i / (layerCount - 1); // 0 to 1
+      const isForeground = depth >= 0.5;
+      const cloudWidth = 300 + Math.random() * 400;
+      const cloudHeight = 80 + Math.random() * 120;
       this.fogLayers.push({
-        x: Math.random() * MAP_WIDTH,
-        y: MAP_HEIGHT * 0.3 + Math.random() * MAP_HEIGHT * 0.5,
-        width: 200 + Math.random() * 400,
-        height: 100 + Math.random() * 150,
-        opacity: 0.2 + Math.random() * 0.3,
-        speed: 5 + depth * 20, // Far fog moves slower
+        x: Math.random() * (MAP_WIDTH + cloudWidth) - cloudWidth / 2,
+        y: MAP_HEIGHT * 0.35 + Math.random() * MAP_HEIGHT * 0.35,
+        width: cloudWidth,
+        height: cloudHeight,
+        opacity: isForeground
+          ? 0.55 + Math.random() * 0.35
+          : 0.25 + Math.random() * 0.25,
+        speed: 8 + depth * 25,
         depth,
+        segments: this.generateCloudSegments(cloudWidth, cloudHeight),
       });
     }
+  }
+
+  private generateCloudSegments(cloudWidth: number, cloudHeight: number): Array<{ offsetX: number; offsetY: number; radius: number }> {
+    const segments: Array<{ offsetX: number; offsetY: number; radius: number }> = [];
+
+    // Base row of large overlapping circles
+    const numBase = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < numBase; i++) {
+      const t = numBase > 1 ? (i / (numBase - 1)) - 0.5 : 0;
+      segments.push({
+        offsetX: t * cloudWidth * 0.75,
+        offsetY: cloudHeight * 0.05 + (Math.random() - 0.5) * cloudHeight * 0.1,
+        radius: cloudHeight * (0.4 + Math.random() * 0.2),
+      });
+    }
+
+    // Top bumps for fluffy appearance
+    const numTop = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < numTop; i++) {
+      segments.push({
+        offsetX: (Math.random() - 0.5) * cloudWidth * 0.5,
+        offsetY: -cloudHeight * (0.15 + Math.random() * 0.2),
+        radius: cloudHeight * (0.3 + Math.random() * 0.15),
+      });
+    }
+
+    return segments;
   }
 
   private initializeSand(count: number): void {
@@ -277,11 +310,13 @@ export class WeatherSystem {
       const speedMultiplier = 0.3 + layer.depth * 0.7;
       layer.x += (layer.speed + wind * 0.2) * speedMultiplier * deltaTime;
 
-      // Wrap around
+      // Wrap around and randomize height for variety
       if (layer.x > MAP_WIDTH + layer.width / 2) {
         layer.x = -layer.width / 2;
+        layer.y = MAP_HEIGHT * 0.35 + Math.random() * MAP_HEIGHT * 0.35;
       } else if (layer.x < -layer.width / 2) {
         layer.x = MAP_WIDTH + layer.width / 2;
+        layer.y = MAP_HEIGHT * 0.35 + Math.random() * MAP_HEIGHT * 0.35;
       }
     }
   }

@@ -282,117 +282,47 @@ export class WeatherRenderer {
 
   // ===== FOG =====
   private renderFogBackground(ctx: CanvasRenderingContext2D, weather: WeatherSystem): void {
-    // Sort by depth - render far layers in background
+    // Background cloud layers (behind ants) - depth < 0.5
     const farLayers = weather.fogLayers.filter(l => l.depth < 0.5).sort((a, b) => a.depth - b.depth);
 
     for (const layer of farLayers) {
-      ctx.save();
-      ctx.globalAlpha = layer.opacity * 0.7;
-
-      // Animate position slowly
-      const animX = layer.x + Math.sin(this.animationTime * 0.15 + layer.depth * 3) * (30 * (1 - layer.depth));
-      const animY = layer.y + Math.cos(this.animationTime * 0.1 + layer.depth * 2) * (15 * (1 - layer.depth));
-
-      // Softer, more diffuse fog clouds
-      const gradient = ctx.createRadialGradient(
-        animX, animY, 0,
-        animX, animY, Math.max(layer.width, layer.height) * 0.6
-      );
-
-      const brightness = 180 + Math.floor(layer.depth * 40);
-      gradient.addColorStop(0, `rgba(${brightness}, ${brightness + 10}, ${brightness + 20}, 0.4)`);
-      gradient.addColorStop(0.4, `rgba(${brightness - 10}, ${brightness}, ${brightness + 10}, 0.2)`);
-      gradient.addColorStop(1, 'rgba(160, 170, 185, 0)');
-
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.ellipse(animX, animY, layer.width * 0.6, layer.height * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
+      // Slow gentle drift animation
+      const animX = layer.x + Math.sin(this.animationTime * 0.1 + layer.depth * 3) * 20;
+      const animY = layer.y + Math.cos(this.animationTime * 0.08 + layer.depth * 2) * 8;
+      this.drawCloud(ctx, animX, animY, layer, 0.7);
     }
-
-    // Subtle overall haze
-    ctx.save();
-    ctx.globalAlpha = 0.15;
-    ctx.fillStyle = 'rgba(180, 190, 205, 0.3)';
-    ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
-    ctx.restore();
   }
 
   private renderFogForeground(ctx: CanvasRenderingContext2D, weather: WeatherSystem): void {
-    // Near fog layers in foreground
+    // Foreground cloud layers (in front of ants, hiding them) - depth >= 0.5
     const nearLayers = weather.fogLayers.filter(l => l.depth >= 0.5).sort((a, b) => a.depth - b.depth);
 
     for (const layer of nearLayers) {
-      ctx.save();
-      ctx.globalAlpha = layer.opacity * 0.5;
+      // Slightly faster animation for closer clouds
+      const animX = layer.x + Math.sin(this.animationTime * 0.15 + layer.depth * 4) * 25;
+      const animY = layer.y + Math.cos(this.animationTime * 0.12 + layer.depth * 3) * 10;
+      this.drawCloud(ctx, animX, animY, layer, 1.0);
+    }
+  }
 
-      // Faster animation for near layers
-      const animX = layer.x + Math.sin(this.animationTime * 0.25 + layer.depth * 4) * (40 * layer.depth);
-      const animY = layer.y + Math.cos(this.animationTime * 0.18 + layer.depth * 3) * (20 * layer.depth);
+  private drawCloud(ctx: CanvasRenderingContext2D, cloudX: number, cloudY: number, layer: { opacity: number; segments: Array<{ offsetX: number; offsetY: number; radius: number }> }, opacityMultiplier: number): void {
+    for (const seg of layer.segments) {
+      const x = cloudX + seg.offsetX;
+      const y = cloudY + seg.offsetY;
+      const r = seg.radius;
+      const alpha = layer.opacity * opacityMultiplier;
 
-      const gradient = ctx.createRadialGradient(
-        animX, animY, 0,
-        animX, animY, Math.max(layer.width, layer.height) * 0.5
-      );
-
-      gradient.addColorStop(0, 'rgba(200, 210, 225, 0.35)');
-      gradient.addColorStop(0.5, 'rgba(190, 200, 215, 0.15)');
-      gradient.addColorStop(1, 'rgba(180, 190, 205, 0)');
+      const gradient = ctx.createRadialGradient(x, y, r * 0.05, x, y, r);
+      gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+      gradient.addColorStop(0.35, `rgba(252, 254, 255, ${alpha * 0.9})`);
+      gradient.addColorStop(0.65, `rgba(248, 250, 255, ${alpha * 0.5})`);
+      gradient.addColorStop(1, 'rgba(245, 248, 255, 0)');
 
       ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.ellipse(animX, animY, layer.width * 0.5, layer.height * 0.4, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-    }
-
-    // Ground fog - rolling wisps
-    ctx.save();
-    const groundFogGradient = ctx.createLinearGradient(0, MAP_HEIGHT * 0.6, 0, MAP_HEIGHT);
-    groundFogGradient.addColorStop(0, 'rgba(180, 190, 205, 0)');
-    groundFogGradient.addColorStop(0.4, 'rgba(175, 185, 200, 0.15)');
-    groundFogGradient.addColorStop(0.7, 'rgba(170, 180, 195, 0.3)');
-    groundFogGradient.addColorStop(1, 'rgba(165, 175, 190, 0.4)');
-    ctx.fillStyle = groundFogGradient;
-    ctx.fillRect(0, MAP_HEIGHT * 0.6, MAP_WIDTH, MAP_HEIGHT * 0.4);
-    ctx.restore();
-
-    // Wispy fog tendrils at ground
-    ctx.save();
-    ctx.globalAlpha = 0.2;
-    ctx.fillStyle = 'rgba(190, 200, 215, 0.25)';
-    ctx.beginPath();
-    ctx.moveTo(0, MAP_HEIGHT);
-    for (let x = 0; x <= MAP_WIDTH; x += 30) {
-      const y = MAP_HEIGHT - 40 + Math.sin(x * 0.008 + this.animationTime * 0.5) * 15
-        + Math.sin(x * 0.015 - this.animationTime * 0.3) * 8;
-      ctx.lineTo(x, y);
-    }
-    ctx.lineTo(MAP_WIDTH, MAP_HEIGHT);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    // Drifting fog patches in foreground
-    ctx.save();
-    ctx.globalAlpha = 0.12;
-    for (let i = 0; i < 3; i++) {
-      const patchX = (MAP_WIDTH * 0.25) * i + Math.sin(this.animationTime * 0.2 + i * 2) * 80;
-      const patchY = MAP_HEIGHT * 0.4 + Math.cos(this.animationTime * 0.15 + i) * 40;
-
-      const patchGradient = ctx.createRadialGradient(patchX, patchY, 0, patchX, patchY, 150);
-      patchGradient.addColorStop(0, 'rgba(200, 210, 220, 0.3)');
-      patchGradient.addColorStop(1, 'rgba(190, 200, 210, 0)');
-
-      ctx.fillStyle = patchGradient;
-      ctx.beginPath();
-      ctx.ellipse(patchX, patchY, 180, 80, 0, 0, Math.PI * 2);
+      ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.restore();
   }
 
   // ===== SANDSTORM =====

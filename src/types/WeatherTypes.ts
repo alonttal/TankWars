@@ -33,6 +33,12 @@ export interface Snowflake {
   opacity: number;
 }
 
+export interface FogCloudSegment {
+  offsetX: number;
+  offsetY: number;
+  radius: number;
+}
+
 export interface FogLayer {
   x: number;
   y: number;
@@ -41,6 +47,7 @@ export interface FogLayer {
   opacity: number;
   speed: number;
   depth: number; // 0-1, affects parallax
+  segments: FogCloudSegment[]; // Cloud shape sub-circles
 }
 
 export interface SandParticle {
@@ -133,10 +140,10 @@ export const WEATHER_CONFIGS: Record<WeatherType, WeatherConfig> = {
   fog: {
     type: 'fog',
     windModifier: 0.8,
-    visibility: 0.4,
-    atmosphereColor: '#8090A0',
-    atmosphereAlpha: 0.4,
-    particleCount: 8, // Number of fog layers
+    visibility: 1.0,
+    atmosphereColor: 'transparent',
+    atmosphereAlpha: 0,
+    particleCount: 20, // Number of cloud layers
     transitionDuration: 4.0,
   },
   snow: {
