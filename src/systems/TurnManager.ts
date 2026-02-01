@@ -1,6 +1,7 @@
 import { NUM_TEAMS } from '../constants.ts';
 import { Ant } from '../Ant.ts';
 import { GameMode } from '../types/GameTypes.ts';
+import { soundManager } from '../Sound.ts';
 
 export interface TurnCallbacks {
   getAnts: () => Ant[];
@@ -93,6 +94,8 @@ export class TurnManager {
     this.callbacks.showTurnBanner(turnText);
     this.callbacks.focusOnAnt(nextAnt);
     this.callbacks.updateUI();
+
+    soundManager.playTurnChange();
   }
 
   updateTimer(deltaTime: number): boolean {

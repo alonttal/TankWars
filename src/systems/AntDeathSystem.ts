@@ -1,5 +1,6 @@
 import { TANK_WIDTH, TANK_HEIGHT, MAP_HEIGHT, WATER_LEVEL } from '../constants.ts';
 import { Terrain } from '../Terrain.ts';
+import { soundManager } from '../Sound.ts';
 import {
   ANT_PIXEL_SCALE,
   DeathType,
@@ -109,18 +110,23 @@ export class AntDeathSystem {
         this.initExplodeDeath(ant, centerX, centerY, particles);
         break;
       case 'ghost':
+        soundManager.playAntDeath('ghost');
         this.initGhostDeath(ant, centerX, particles);
         break;
       case 'splatter':
+        soundManager.playAntDeath('splatter');
         this.initSplatterDeath(ant, centerX, centerY, particles, state);
         break;
       case 'disintegrate':
+        soundManager.playAntDeath('disintegrate');
         this.initDisintegrateDeath(ant, centerX, centerY, particles, state);
         break;
       case 'vaporize':
+        soundManager.playAntDeath('vaporize');
         this.initVaporizeDeath(state);
         break;
       case 'drown':
+        soundManager.playAntDeath('drown');
         this.initDrownDeath(ant, centerX, centerY, particles);
         break;
     }

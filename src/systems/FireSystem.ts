@@ -104,7 +104,11 @@ export class FireSystem {
     this.effects.triggerScreenFlash('#FFF', 0.15 + powerRatio * 0.1);
 
     // Play sound
-    soundManager.playShoot();
+    if (weaponConfig.type === 'sniper') {
+      soundManager.playSniperShot();
+    } else {
+      soundManager.playShoot();
+    }
 
     // Update stats
     this.callbacks.incrementShotsFired(ant.teamIndex);

@@ -42,6 +42,7 @@ import {
 } from './types/AntParticleTypes.ts';
 import { AntRenderer, AntRenderData } from './rendering/AntRenderer.ts';
 import { AntDeathSystem, AntDeathData, DeathParticles } from './systems/AntDeathSystem.ts';
+import { soundManager } from './Sound.ts';
 
 export class Ant {
   x: number;
@@ -147,6 +148,9 @@ export class Ant {
   private walkDirection: number;
   movementBarAlpha: number;
 
+  // Sound state
+  private footstepTimer: number;
+  private wasFallingFast: boolean;
 
   // Rendering and death systems
   private renderer: AntRenderer;
@@ -226,6 +230,8 @@ export class Ant {
     this.isWalking = false;
     this.walkDirection = 0;
     this.movementBarAlpha = 0;
+    this.footstepTimer = 0;
+    this.wasFallingFast = false;
 
     // Initialize subsystems
     this.renderer = new AntRenderer();
@@ -266,6 +272,7 @@ export class Ant {
     this.velocityY = -JUMP_FORCE;
     this.isGrounded = false;
     this.movementEnergy -= JUMP_ENERGY_COST;
+    soundManager.playJump();
   }
 
   canMove(): boolean {
@@ -302,6 +309,11 @@ export class Ant {
         this.velocityX = this.walkDirection * MOVEMENT_SPEED;
         this.movementEnergy -= MOVEMENT_ENERGY_COST * deltaTime;
         if (this.movementEnergy < 0) this.movementEnergy = 0;
+        this.footstepTimer -= deltaTime;
+        if (this.footstepTimer <= 0) {
+          soundManager.playFootstep();
+          this.footstepTimer = 0.15;
+        }
       } else {
         this.velocityX = 0;
       }
@@ -315,6 +327,16 @@ export class Ant {
 
     if (!this.isGrounded) {
       this.velocityY += GRAVITY * deltaTime;
+    }
+
+    // Falling whistle when falling fast
+    if (!this.isGrounded && this.velocityY > 80) {
+      if (!this.wasFallingFast) {
+        soundManager.playFallingWhistle();
+        this.wasFallingFast = true;
+      }
+    } else {
+      this.wasFallingFast = false;
     }
 
     const newX = this.x + this.velocityX * deltaTime;
@@ -402,6 +424,7 @@ export class Ant {
     // If shield absorbed all damage, still show visual feedback but don't reduce health
     if (amount <= 0) {
       // Show shield absorb effect
+      soundManager.playShieldAbsorb();
       this.damageFlash = 0.15;
 
       // Spawn shield spark particles
@@ -422,6 +445,7 @@ export class Ant {
     }
 
     this.health -= amount;
+    soundManager.playHit();
     this.damageFlash = 0.3;
 
     const knockbackStrength = Math.min(amount / 10, 4);

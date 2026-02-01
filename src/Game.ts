@@ -546,6 +546,7 @@ export class Game {
         // Detect drowning during player turn — transition to FIRING so endTurn() runs
         if (wasAliveBeforeMove && !currentAnt.isAlive && currentAnt.getDeathType() === 'drown') {
           this.waterRenderer.spawnSplash(currentAnt.x, currentAnt.y, 1.5);
+          soundManager.playWaterSplash();
           this.state = 'FIRING';
           this.fireButton.disabled = true;
         }
@@ -575,6 +576,7 @@ export class Game {
       // Detect AI ant drowning during movement
       if (aiWasAlive && aiAnt && !aiAnt.isAlive && aiAnt.getDeathType() === 'drown') {
         this.waterRenderer.spawnSplash(aiAnt.x, aiAnt.y, 1.5);
+        soundManager.playWaterSplash();
       }
     }
 
@@ -662,6 +664,7 @@ export class Game {
     for (let i = 0; i < this.ants.length; i++) {
       if (wasAlive[i] && !this.ants[i].isAlive && this.ants[i].getDeathType() === 'drown') {
         this.waterRenderer.spawnSplash(this.ants[i].x, this.ants[i].y, 1.5);
+        soundManager.playWaterSplash();
       }
     }
 
@@ -684,6 +687,7 @@ export class Game {
       // Handle water hit - splash, no explosion or crater
       if (!result.active && result.hitWater) {
         this.waterRenderer.spawnSplash(result.hitX, result.hitY, 1.0);
+        soundManager.playWaterSplash();
       }
 
       if (!result.active && result.hit) {
@@ -820,6 +824,7 @@ export class Game {
         weaponConfig.burnDamagePerSecond
       );
       this.burnAreas.push(burnArea);
+      soundManager.playNapalmIgnite();
     }
 
     this.effects.triggerHitstop(0.08);
@@ -998,6 +1003,7 @@ export class Game {
     // Weather modifies wind and may trigger effects
     const { modifiedWind, shouldFlash } = this.weather.onTurnStart(this.wind);
     this.wind = Math.max(-WIND_STRENGTH_MAX, Math.min(WIND_STRENGTH_MAX, modifiedWind));
+    soundManager.playWindChange();
 
     if (shouldFlash) {
       this.effects.triggerScreenFlash('#FFFFFF', 0.3);
@@ -1402,6 +1408,7 @@ export class Game {
     const spawnedPowerUp = this.powerUpManager.trySpawn(this.terrain, this.ants);
     if (spawnedPowerUp) {
       // Power-up spawned - transition to falling state
+      soundManager.playPowerUpSpawn();
       this.state = 'POWERUP_FALLING';
       this.fireButton.disabled = true;
       return;
