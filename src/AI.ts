@@ -7,7 +7,8 @@ import {
   MOVEMENT_SPEED,
   MAX_SLOPE_ANGLE,
   MOVEMENT_ENERGY_COST,
-  JUMP_ENERGY_COST
+  JUMP_ENERGY_COST,
+  WATER_LEVEL,
 } from './constants.ts';
 import { WeaponType, WEAPON_CONFIGS, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
 
@@ -674,6 +675,11 @@ export class AntAI {
       const candidateX = shooter.x + dist;
       const candidateY = MAP_HEIGHT - terrain.getHeightAt(candidateX);
 
+      // Reject positions near or below water level
+      if (candidateY >= WATER_LEVEL - 20) {
+        continue;
+      }
+
       // Check reachability
       const reachability = this.checkReachability(
         shooter.x,
@@ -715,6 +721,11 @@ export class AntAI {
     wind: number
   ): number {
     let score = 0;
+
+    // Reject positions near water
+    if (y >= WATER_LEVEL - 20) {
+      return -1000;
+    }
 
     // Distance factor (prefer medium range, not too close or far)
     const distToTarget = Math.abs(x - target.x);

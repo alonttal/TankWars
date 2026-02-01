@@ -27,6 +27,7 @@ import { MenuRenderer } from './rendering/MenuRenderer.ts';
 import { HUDRenderer } from './rendering/HUDRenderer.ts';
 import { EffectsRenderer } from './rendering/EffectsRenderer.ts';
 import { WeatherRenderer } from './rendering/WeatherRenderer.ts';
+import { WaterRenderer } from './rendering/WaterRenderer.ts';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -110,6 +111,7 @@ export class Game {
   private hudRenderer: HUDRenderer;
   private effectsRenderer: EffectsRenderer;
   private weatherRenderer: WeatherRenderer;
+  private waterRenderer: WaterRenderer;
 
   constructor() {
     this.canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -154,6 +156,7 @@ export class Game {
     this.hudRenderer = new HUDRenderer();
     this.effectsRenderer = new EffectsRenderer();
     this.weatherRenderer = new WeatherRenderer();
+    this.waterRenderer = new WaterRenderer();
 
     // Initialize weapon and power-up systems
     this.projectiles = [];
@@ -500,6 +503,9 @@ export class Game {
     // Update weather system
     this.weather.update(effectiveDelta, this.wind);
 
+    // Update water renderer
+    this.waterRenderer.update(effectiveDelta);
+
     // Update terrain weather overlays
     const activeWeather = this.weather.getTransitionProgress() >= 0.5
       ? this.weather.getTargetConfig().type
@@ -535,7 +541,12 @@ export class Game {
       // Update movement for current ant
       const currentAnt = this.ants[this.currentPlayerIndex];
       if (currentAnt && currentAnt.isAlive) {
+        const wasAliveBeforeMove = currentAnt.isAlive;
         currentAnt.updateMovement(effectiveDelta, this.terrain);
+        // Detect drowning during player turn
+        if (wasAliveBeforeMove && !currentAnt.isAlive && currentAnt.getDeathType() === 'drown') {
+          this.waterRenderer.spawnSplash(currentAnt.x, currentAnt.y, 1.5);
+        }
       }
     }
 
@@ -628,11 +639,21 @@ export class Game {
   }
 
   private updateFiring(effectiveDelta: number): void {
+    // Track which ants are alive before movement (to detect drowning)
+    const wasAlive = this.ants.map(a => a.isAlive);
+
     // Update ALL ants - check for ground removal and apply physics
     // This handles both knockback from explosions AND ants whose ground was destroyed
     for (const ant of this.ants) {
       if (ant.isAlive) {
         ant.updateMovement(effectiveDelta, this.terrain);
+      }
+    }
+
+    // Detect newly drowned ants and spawn splash
+    for (let i = 0; i < this.ants.length; i++) {
+      if (wasAlive[i] && !this.ants[i].isAlive && this.ants[i].getDeathType() === 'drown') {
+        this.waterRenderer.spawnSplash(this.ants[i].x, this.ants[i].y, 1.5);
       }
     }
 
@@ -650,6 +671,11 @@ export class Game {
 
       if (result.shouldCluster) {
         this.handleClusterSplit(projectile, result, newProjectiles);
+      }
+
+      // Handle water hit - splash, no explosion or crater
+      if (!result.active && result.hitWater) {
+        this.waterRenderer.spawnSplash(result.hitX, result.hitY, 1.0);
       }
 
       if (!result.active && result.hit) {
@@ -1029,6 +1055,9 @@ export class Game {
     this.terrain.render(this.ctx);
     this.terrain.renderOverlays(this.ctx);
 
+    // Water background (behind ants)
+    this.waterRenderer.renderWaterBackground(this.ctx);
+
     for (let i = 0; i < this.ants.length; i++) {
       const isCurrentAndPlaying = i === this.currentPlayerIndex &&
         (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING');
@@ -1056,6 +1085,9 @@ export class Game {
     for (const explosion of this.explosions) {
       explosion.render(this.ctx);
     }
+
+    // Water surface (in front of ants/projectiles/explosions)
+    this.waterRenderer.renderWaterSurface(this.ctx);
 
     // Weather foreground particles (in front of terrain and ants for depth)
     this.weatherRenderer.renderWeatherForeground(this.ctx, this.weather, this.wind);
@@ -1152,6 +1184,9 @@ export class Game {
     // Initialize weather for terrain theme
     this.weather.setTerrainTheme(this.terrain.getThemeName());
     this.weather.clear();
+
+    // Initialize water renderer for terrain theme
+    this.waterRenderer.setTheme(this.terrain.getThemeName());
 
     // Create ants
     this.playerStats = [];

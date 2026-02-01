@@ -1,4 +1,4 @@
-import { PLAYABLE_WIDTH, PLAYABLE_OFFSET_X } from '../constants.ts';
+import { PLAYABLE_WIDTH, PLAYABLE_OFFSET_X, MAP_HEIGHT, WATER_LEVEL } from '../constants.ts';
 import { PowerUp } from './PowerUp.ts';
 import { PowerUpType, POWERUP_CONFIGS, POWERUP_ORDER, getTotalSpawnWeight } from './PowerUpTypes.ts';
 import { Terrain } from '../Terrain.ts';
@@ -60,6 +60,14 @@ export class PowerUpManager {
 
       // Check if there's valid terrain at this position
       if (!PowerUp.isValidSpawnPosition(x, terrain)) {
+        attempts++;
+        continue;
+      }
+
+      // Skip if terrain surface is below water level
+      const terrainHeight = terrain.getHeightAt(x);
+      const surfaceY = MAP_HEIGHT - terrainHeight;
+      if (surfaceY >= WATER_LEVEL - 10) {
         attempts++;
         continue;
       }

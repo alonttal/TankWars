@@ -2,6 +2,7 @@ import {
   GRAVITY,
   MAP_WIDTH,
   MAP_HEIGHT,
+  WATER_LEVEL,
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
 import { Ant } from './Ant.ts';
@@ -10,6 +11,7 @@ import { WeaponConfig, WEAPON_CONFIGS } from './weapons/WeaponTypes.ts';
 export interface ProjectileState {
   active: boolean;
   hit: boolean;
+  hitWater: boolean;
   hitX: number;
   hitY: number;
   shouldCluster: boolean; // True if cluster bomb should split
@@ -184,7 +186,7 @@ export class Projectile {
       // Still update trail and impact particles even when projectile is gone
       this.updateTrailParticles(deltaTime);
       this.updateImpactParticles(deltaTime);
-      return { active: false, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+      return { active: false, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
     }
 
     // Update animation time
@@ -240,12 +242,19 @@ export class Projectile {
     this.x += this.vx * deltaTime;
     this.y += this.vy * deltaTime;
 
+    // Check water collision (before out-of-bounds)
+    if (this.y >= WATER_LEVEL) {
+      this.active = false;
+      this.trail = [];
+      return { active: false, hit: false, hitWater: true, hitX: this.x, hitY: WATER_LEVEL, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+    }
+
     // Check if out of bounds (very lenient - allow projectiles to go off-screen)
     // Only deactivate if WAY off screen (500px) or below the map
     if (this.x < -500 || this.x > MAP_WIDTH + 500 || this.y > MAP_HEIGHT + 100) {
       this.active = false;
       this.trail = []; // Clear trail on deactivation
-      return { active: false, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+      return { active: false, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
     }
 
     // Check terrain collision (ground and floating platforms)
@@ -276,11 +285,11 @@ export class Projectile {
           this.active = false;
           this.trail = [];
           this.spawnImpactParticles(this.x, this.y);
-          return { active: false, hit: true, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+          return { active: false, hit: true, hitWater: false, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
         }
 
         // Continue bouncing - projectile stays active
-        return { active: true, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+        return { active: true, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
       }
 
       // No bounces remaining - explode
@@ -288,7 +297,7 @@ export class Projectile {
       this.trail = []; // Clear trail on hit
       // Spawn impact dust burst
       this.spawnImpactParticles(this.x, this.y);
-      return { active: false, hit: true, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+      return { active: false, hit: true, hitWater: false, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
     }
 
     // Check wall collision (sides of map) - bounce off walls
@@ -311,11 +320,11 @@ export class Projectile {
       if (distance < 25) { // Hit radius
         this.active = false;
         this.trail = []; // Clear trail on hit
-        return { active: false, hit: true, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+        return { active: false, hit: true, hitWater: false, hitX: this.x, hitY: this.y, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
       }
     }
 
-    return { active: true, hit: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
+    return { active: true, hit: false, hitWater: false, hitX: 0, hitY: 0, shouldCluster: false, clusterX: 0, clusterY: 0, clusterVx: 0, clusterVy: 0 };
   }
 
   private updateTrailParticles(deltaTime: number): void {

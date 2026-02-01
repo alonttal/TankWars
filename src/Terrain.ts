@@ -1,4 +1,4 @@
-import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT, TERRAIN_SCALE, PLAYABLE_WIDTH, PLAYABLE_HEIGHT, PLAYABLE_OFFSET_X, PLAYABLE_OFFSET_Y } from './constants.ts';
+import { BASE_WIDTH, BASE_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TERRAIN_MIN_HEIGHT, TERRAIN_MAX_HEIGHT, TERRAIN_SCALE, PLAYABLE_WIDTH, PLAYABLE_HEIGHT, PLAYABLE_OFFSET_X, PLAYABLE_OFFSET_Y, WATER_LEVEL } from './constants.ts';
 import { WeatherType } from './types/WeatherTypes.ts';
 
 // Weather visual state for background rendering
@@ -1554,15 +1554,16 @@ export class Terrain {
     const spacing = PLAYABLE_WIDTH / (totalAnts + 1);
     const x = PLAYABLE_OFFSET_X + spacing * (index + 1);
 
-    // Find a valid surface position
+    // Find a valid surface position (above water level)
     let y = this.findSurfaceY(x);
-    if (y < 0) {
-      // No terrain at this x, search nearby
+    if (y < 0 || y >= WATER_LEVEL - 30) {
+      y = -1;
+      // No valid terrain at this x, search nearby
       for (let offset = 1; offset < 100; offset++) {
-        y = this.findSurfaceY(x + offset);
-        if (y >= 0) break;
-        y = this.findSurfaceY(x - offset);
-        if (y >= 0) break;
+        const yPlus = this.findSurfaceY(x + offset);
+        if (yPlus >= 0 && yPlus < WATER_LEVEL - 30) { y = yPlus; break; }
+        const yMinus = this.findSurfaceY(x - offset);
+        if (yMinus >= 0 && yMinus < WATER_LEVEL - 30) { y = yMinus; break; }
       }
     }
 
@@ -1590,7 +1591,7 @@ export class Terrain {
 
     for (let sx = zoneStartX; sx < zoneStartX + usableWidth; sx += sampleStep) {
       const surfaceY = this.findSurfaceY(sx);
-      if (surfaceY >= 0 && surfaceY < playableBottom - 50) {
+      if (surfaceY >= 0 && surfaceY < playableBottom - 50 && surfaceY < WATER_LEVEL - 30) {
         // Check it's not inside a hole (has solid ground below)
         const hasGround = this.getPixel(sx, surfaceY + 10) > 0;
         if (hasGround) {

@@ -2,7 +2,7 @@
 export const ANT_PIXEL_SCALE = 2;
 
 // Death animation types
-export type DeathType = 'explode' | 'ghost' | 'splatter' | 'disintegrate' | 'vaporize';
+export type DeathType = 'explode' | 'ghost' | 'splatter' | 'disintegrate' | 'vaporize' | 'drown';
 
 export interface SmokeParticle {
   x: number;

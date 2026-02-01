@@ -13,7 +13,8 @@ import {
   KNOCKBACK_MIN_FORCE,
   KNOCKBACK_MAX_FORCE,
   FALL_DAMAGE_VELOCITY_THRESHOLD,
-  FALL_DAMAGE_MULTIPLIER
+  FALL_DAMAGE_MULTIPLIER,
+  WATER_LEVEL,
 } from './constants.ts';
 import { Terrain } from './Terrain.ts';
 import { WeaponType, getDefaultAmmo, WEAPON_CONFIGS } from './weapons/WeaponTypes.ts';
@@ -339,12 +340,12 @@ export class Ant {
       const groundHeight = terrain.getHeightAt(this.x);
       const groundY = MAP_HEIGHT - groundHeight;
 
-      // Check if ant has fallen below the map (no ground beneath)
-      if (newY >= MAP_HEIGHT) {
-        this.y = MAP_HEIGHT;
+      // Check if ant has fallen into water
+      if (newY >= WATER_LEVEL) {
+        this.y = WATER_LEVEL;
         this.health = 0;
         this.isAlive = false;
-        this.deathType = 'disintegrate';
+        this.deathType = 'drown';
         this.deathDelayTimer = 0;
         this.deathAnimationStage = 0;
         return;
@@ -863,6 +864,10 @@ export class Ant {
       x: bazookaStartX + Math.cos(angleRad) * barrelLength,
       y: bazookaStartY - Math.sin(angleRad) * barrelLength,
     };
+  }
+
+  getDeathType(): DeathType {
+    return this.deathType;
   }
 
   // Weapon management

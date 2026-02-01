@@ -1,4 +1,4 @@
-import { TANK_WIDTH, TANK_HEIGHT, MAP_HEIGHT } from '../constants.ts';
+import { TANK_WIDTH, TANK_HEIGHT, MAP_HEIGHT, WATER_LEVEL } from '../constants.ts';
 import { Terrain } from '../Terrain.ts';
 import {
   ANT_PIXEL_SCALE,
@@ -119,6 +119,9 @@ export class AntDeathSystem {
         break;
       case 'vaporize':
         this.initVaporizeDeath(state);
+        break;
+      case 'drown':
+        this.initDrownDeath(ant, centerX, centerY, particles);
         break;
     }
   }
@@ -350,6 +353,27 @@ export class AntDeathSystem {
     state.dissolveProgress = 0;
   }
 
+  private initDrownDeath(
+    _ant: AntDeathData,
+    centerX: number,
+    centerY: number,
+    particles: DeathParticles
+  ): void {
+    // Minimal setup - a few bubble-like dust particles
+    const bubbleColors = ['#88BBDD', '#AADDEE', '#6699BB'];
+    for (let i = 0; i < 8; i++) {
+      particles.dustParticles.push({
+        x: centerX + (Math.random() - 0.5) * 16,
+        y: centerY + Math.random() * 10,
+        vx: (Math.random() - 0.5) * 15,
+        vy: -20 - Math.random() * 30,
+        size: 2 + Math.random() * 3,
+        alpha: 0.8,
+        color: bubbleColors[Math.floor(Math.random() * bubbleColors.length)],
+      });
+    }
+  }
+
   // Update death animation based on death type
   updateDeathAnimation(
     deltaTime: number,
@@ -372,6 +396,9 @@ export class AntDeathSystem {
         break;
       case 'vaporize':
         this.updateVaporizeDeath(deltaTime, ant, state, particles);
+        break;
+      case 'drown':
+        this.updateDrownDeath(deltaTime, ant, state, particles);
         break;
     }
   }
@@ -545,6 +572,48 @@ export class AntDeathSystem {
       p.alpha -= deltaTime * 1.5;
     }
     particles.dissolveParticles = particles.dissolveParticles.filter(p => p.alpha > 0);
+  }
+
+  private updateDrownDeath(
+    deltaTime: number,
+    ant: AntDeathData,
+    state: DeathAnimationState,
+    particles: DeathParticles
+  ): void {
+    if (state.deathAnimationStage === 1) {
+      // Brief flash stage
+      if (state.deathAnimationTimer <= 0) {
+        state.deathAnimationStage = 2;
+        state.deathAnimationTimer = 2.0;
+      }
+    } else if (state.deathAnimationStage === 2) {
+      // Sinking stage - ant sinks below water surface
+      state.deathPopY += 30 * deltaTime; // Sink downward
+
+      // Spawn occasional bubble dust particles
+      if (Math.random() < deltaTime * 3) {
+        const bubbleColors = ['#88BBDD', '#AADDEE', '#6699BB'];
+        particles.dustParticles.push({
+          x: ant.x + (Math.random() - 0.5) * 12,
+          y: WATER_LEVEL - 5,
+          vx: (Math.random() - 0.5) * 8,
+          vy: -15 - Math.random() * 20,
+          size: 2 + Math.random() * 2,
+          alpha: 0.7,
+          color: bubbleColors[Math.floor(Math.random() * bubbleColors.length)],
+        });
+      }
+
+      if (state.deathAnimationTimer <= 0) {
+        state.deathAnimationStage = 3;
+        state.deathAnimationTimer = 1.0;
+      }
+    } else if (state.deathAnimationStage === 3) {
+      // Fade out - just bubbles remain
+      if (state.deathAnimationTimer <= 0) {
+        state.deathAnimationStage = 0;
+      }
+    }
   }
 
   // Update death-type specific particles
@@ -741,6 +810,9 @@ export class AntDeathSystem {
         break;
       case 'vaporize':
         this.renderVaporizeDeath(ctx, ant, state, particles);
+        break;
+      case 'drown':
+        this.renderDrownDeath(ctx, ant, state, particles);
         break;
     }
   }
@@ -1242,6 +1314,56 @@ export class AntDeathSystem {
         this.drawPixel(ctx, baseX + Math.floor((Math.random() - 0.5) * 4), groundBaseY - 1, '#00FFFF');
       }
       ctx.globalAlpha = 1;
+    }
+  }
+
+  private renderDrownDeath(
+    ctx: CanvasRenderingContext2D,
+    ant: AntDeathData,
+    state: DeathAnimationState,
+    particles: DeathParticles
+  ): void {
+    // Render bubble dust particles
+    for (const dust of particles.dustParticles) {
+      if (dust.alpha > 0) {
+        ctx.globalAlpha = dust.alpha * 0.8;
+        ctx.strokeStyle = dust.color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dust.x, dust.y, dust.size, 0, Math.PI * 2);
+        ctx.stroke();
+        // Small highlight
+        ctx.fillStyle = `rgba(255, 255, 255, ${dust.alpha * 0.3})`;
+        ctx.beginPath();
+        ctx.arc(dust.x - dust.size * 0.3, dust.y - dust.size * 0.3, dust.size * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    if (state.deathAnimationStage === 2) {
+      // Render ant body sinking below water with increasing transparency and blue tint
+      const sinkAmount = state.deathPopY;
+      const alpha = Math.max(0, 1 - sinkAmount / 60);
+
+      if (alpha > 0) {
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.7;
+
+        // Clip to below water level to show only submerged part
+        ctx.translate(0, sinkAmount);
+
+        // Blue tint overlay
+        this.renderDeadAntBody(ctx, ant, state);
+
+        // Apply blue tint
+        ctx.globalCompositeOperation = 'source-atop';
+        ctx.fillStyle = `rgba(68, 136, 204, ${0.3 + sinkAmount / 100})`;
+        ctx.fillRect(ant.x - 30, ant.y - 40, 60, 50);
+        ctx.globalCompositeOperation = 'source-over';
+
+        ctx.restore();
+      }
     }
   }
 
