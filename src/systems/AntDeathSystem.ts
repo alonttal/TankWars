@@ -476,7 +476,7 @@ export class AntDeathSystem {
       if (state.deathAnimationTimer <= 0) {
         state.deathAnimationStage = 0;
         particles.ghostParticle = null;
-        particles.etherealWisps = [];
+        particles.etherealWisps.length = 0;
       }
     }
   }
@@ -567,7 +567,7 @@ export class AntDeathSystem {
     } else if (state.deathAnimationStage === 3) {
       if (state.deathAnimationTimer <= 0) {
         state.deathAnimationStage = 0;
-        particles.dissolveParticles = [];
+        particles.dissolveParticles.length = 0;
       }
     }
 

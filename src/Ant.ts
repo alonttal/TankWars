@@ -841,13 +841,16 @@ export class Ant {
         this.deathAnimationTimer = 0.15;
         this.destructionFlash = 1.0;
         const initState = this.getDeathAnimationState();
+        const initParticles = this.getDeathParticles();
         this.deathSystem.initializeDeathEffect(
           this.getDeathData(),
           this.deathType,
-          this.getDeathParticles(),
+          initParticles,
           initState
         );
         this.syncFromState(initState);
+        // Sync back any reassigned particle refs (e.g. ghostParticle)
+        this.ghostParticle = initParticles.ghostParticle;
       }
     }
 
@@ -855,13 +858,16 @@ export class Ant {
     if (this.deathAnimationStage > 0) {
       this.deathAnimationTimer -= deltaTime;
       const deathState = this.getDeathAnimationState();
+      const deathParticles = this.getDeathParticles();
       this.deathSystem.updateDeathAnimation(
         deltaTime,
         this.getDeathData(),
         deathState,
-        this.getDeathParticles()
+        deathParticles
       );
       this.syncFromState(deathState);
+      // Sync back any reassigned particle refs (e.g. ghostParticle set to null)
+      this.ghostParticle = deathParticles.ghostParticle;
     }
 
     // Update death-type specific particles
