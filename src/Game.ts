@@ -5,12 +5,10 @@ import { Projectile } from './Projectile.ts';
 import { Explosion } from './Explosion.ts';
 import { AIDifficulty } from './AI.ts';
 import { soundManager } from './Sound.ts';
-import { WeaponType, WEAPON_ORDER } from './weapons/WeaponTypes.ts';
+import { WEAPON_ORDER } from './weapons/WeaponTypes.ts';
 import { BurnArea } from './weapons/BurnArea.ts';
 import { PowerUpManager } from './powerups/PowerUpManager.ts';
 import { POWERUP_CONFIGS } from './powerups/PowerUpTypes.ts';
-import { WeaponSelector } from './ui/WeaponSelector.ts';
-import { BuffIndicator } from './ui/BuffIndicator.ts';
 import { WeaponMenu } from './ui/WeaponMenu.ts';
 
 // Import extracted modules
@@ -29,6 +27,7 @@ import { EffectsRenderer } from './rendering/EffectsRenderer.ts';
 import { WeatherRenderer } from './rendering/WeatherRenderer.ts';
 import { WaterRenderer } from './rendering/WaterRenderer.ts';
 import { compactArray } from './utils/compactArray.ts';
+import { generateUniqueNames } from './utils/antNames.ts';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -103,8 +102,6 @@ export class Game {
   private projectiles: Projectile[];
   private burnAreas: BurnArea[];
   private powerUpManager: PowerUpManager;
-  private weaponSelector: WeaponSelector;
-  private buffIndicator: BuffIndicator;
   private weaponMenu: WeaponMenu;
 
   // Extracted systems
@@ -170,36 +167,14 @@ export class Game {
     this.projectiles = [];
     this.burnAreas = [];
     this.powerUpManager = new PowerUpManager();
-    this.weaponSelector = new WeaponSelector();
-    this.buffIndicator = new BuffIndicator();
     this.weaponMenu = new WeaponMenu({
       onWeaponSelected: (_weapon) => {
-        const tank = this.ants[this.currentPlayerIndex];
-        if (tank) this.weaponSelector.update(tank);
+        // Weapon menu handles selection internally
       }
     });
-
-    this.weaponSelector.hide();
-    this.buffIndicator.hide();
-
-    this.weaponSelector.setOnWeaponSelect((weapon: WeaponType) => {
-      if (this.state === 'PLAYING' && !this.isAITurn()) {
-        const tank = this.ants[this.currentPlayerIndex];
-        if (tank && tank.selectWeapon(weapon)) {
-          this.weaponSelector.update(tank);
-          soundManager.playMenuSelect();
-        }
-      }
-    });
-
-    this.weaponSelector.hide();
-    this.buffIndicator.hide();
 
     // Initialize fire system
     this.fireSystem = new FireSystem(this.camera, this.effects, {
-      updateWeaponSelector: (ant) => this.weaponSelector.update(ant),
-      updateBuffIndicator: (ant) => this.buffIndicator.update(ant),
-      setWeaponSelectorEnabled: (enabled) => this.weaponSelector.setEnabled(enabled),
       setFireButtonDisabled: (disabled) => { this.fireButton.disabled = disabled; },
       incrementShotsFired: (teamIndex) => { this.playerStats[teamIndex].shotsFired++; },
     });
@@ -228,8 +203,6 @@ export class Game {
       setSelectedSettingIndex: (index) => { this.selectedSettingIndex = index; },
       onQuitToMenu: () => {
         soundManager.stopMusic();
-        this.weaponSelector.hide();
-        this.buffIndicator.hide();
         this.menuRenderer.reset();
       },
     });
@@ -252,7 +225,6 @@ export class Game {
         this.powerSlider.value = power.toString();
         this.powerValue.textContent = power.toString();
       },
-      updateWeaponSelector: (ant) => this.weaponSelector.update(ant),
       focusOnAnt: (ant) => this.camera.focusOnAnt(ant),
       setProjectiles: (projectiles) => { this.projectiles = projectiles; },
       endTurn: () => this.endTurn(),
@@ -546,8 +518,8 @@ export class Game {
     // Update menu renderer animations
     this.menuRenderer.update(deltaTime, this.state, this.menuItems.length);
 
-    // Update HUD turn banner
-    this.hudRenderer.updateTurnBanner(deltaTime);
+    // Update HUD animations (turn banner, flash timers)
+    this.hudRenderer.update(deltaTime);
 
     // Update intro camera pan
     if (this.state === 'INTRO_PAN') {
@@ -895,7 +867,6 @@ export class Game {
     const collected = this.powerUpManager.update(effectiveDelta, this.ants, this.terrain);
     if (collected) {
       soundManager.playPowerUpCollect();
-      this.buffIndicator.update(collected.ant);
 
       const config = POWERUP_CONFIGS[collected.type];
       this.effects.addFloatingText({
@@ -988,8 +959,6 @@ export class Game {
 
       this.state = 'GAME_OVER';
       this.fireButton.disabled = true;
-      this.weaponSelector.hide();
-      this.buffIndicator.hide();
 
       if (this.winner) {
         this.effects.spawnConfetti();
@@ -1014,11 +983,6 @@ export class Game {
   private finishTurnTransition(): void {
     this.nextPlayer();
 
-    const currentAnt = this.ants[this.currentPlayerIndex];
-    this.weaponSelector.update(currentAnt);
-    this.buffIndicator.update(currentAnt);
-    this.weaponSelector.setEnabled(true);
-
     if (this.isAITurn()) {
       this.aiManager.startAITurn();
     } else {
@@ -1042,6 +1006,7 @@ export class Game {
     }
 
     this.updateWindDisplay();
+    this.hudRenderer.onWindChanged();
 
     // Check for lightning strike between turns
     if (this.weather.trySpawnLightningStrike(this.terrain)) {
@@ -1052,7 +1017,6 @@ export class Game {
         this.lightningCinematicTimer = focusRequest.duration;
         this.lightningFocusPosition = { x: focusRequest.x, y: focusRequest.y };
         this.fireButton.disabled = true;
-        this.weaponSelector.setEnabled(false);
         this.camera.focusOnProjectile(focusRequest.x, focusRequest.y);
       }
       return;
@@ -1159,13 +1123,22 @@ export class Game {
     this.ctx.restore();
 
     // UI layer (no camera movement)
-    if ((this.state === 'PLAYING' || this.state === 'AI_THINKING') && !this.isAITurn()) {
-      this.hudRenderer.renderTurnTimer(this.ctx, this.turnTimeRemaining, this.maxTurnTime);
+    if (this.state === 'PLAYING' || this.state === 'AI_THINKING' || this.state === 'FIRING') {
+      const uiAnt = this.ants[this.currentPlayerIndex] || null;
+      this.hudRenderer.renderHUDHealthBars(this.ctx, this.ants, this.currentPlayerIndex, this.gameMode, this.state);
+      this.hudRenderer.renderTurnInfoPanel(this.ctx, this.turnTimeRemaining, this.maxTurnTime, uiAnt, this.state);
+      this.hudRenderer.renderTurnBanner(this.ctx, uiAnt);
+      this.hudRenderer.renderBottomStrip(this.ctx, this.wind, uiAnt);
+    }
+
+    // Intro pan overlay
+    if (this.state === 'INTRO_PAN') {
+      this.hudRenderer.renderIntroPanOverlay(this.ctx, this.introPanPhase, this.introPanTimer, this.ants, this.gameMode, this.camera);
     }
 
     // Weather indicator (always show during gameplay, but not on game over screen)
     if (this.state !== 'GAME_OVER') {
-      this.weatherRenderer.renderWeatherIndicator(this.ctx, this.weather, BASE_WIDTH - 30, 30);
+      this.weatherRenderer.renderWeatherIndicator(this.ctx, this.weather, BASE_WIDTH - 30, BASE_HEIGHT - 30);
     }
 
     // Weapon menu (UI layer, no camera transform)
@@ -1263,6 +1236,12 @@ export class Game {
       this.playerStats.push({ shotsFired: 0, hits: 0, damageDealt: 0 });
     }
 
+    // Assign unique names to all ants
+    const names = generateUniqueNames(this.ants.length);
+    for (let i = 0; i < this.ants.length; i++) {
+      this.ants[i].name = names[i];
+    }
+
     // Initialize HUD health animations
     this.hudRenderer.initHealthAnimations(this.ants.length);
 
@@ -1280,9 +1259,6 @@ export class Game {
 
     this.updateUI();
     this.fireButton.disabled = true;
-
-    this.weaponSelector.hide();
-    this.buffIndicator.hide();
     this.input.closeWeaponMenu();
 
     soundManager.startMusic();
@@ -1367,7 +1343,7 @@ export class Game {
       const weapon = WEAPON_ORDER[index];
       const tank = this.ants[this.currentPlayerIndex];
       if (tank && tank.selectWeapon(weapon)) {
-        this.weaponSelector.update(tank);
+        this.hudRenderer.onWeaponChanged();
         soundManager.playMenuSelect();
       }
     }
@@ -1432,9 +1408,6 @@ export class Game {
 
       this.state = 'GAME_OVER';
       this.fireButton.disabled = true;
-
-      this.weaponSelector.hide();
-      this.buffIndicator.hide();
 
       if (this.winner) {
         this.effects.spawnConfetti();

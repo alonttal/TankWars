@@ -6,9 +6,6 @@ import { CameraSystem } from './CameraSystem.ts';
 import { EffectsSystem } from './EffectsSystem.ts';
 
 export interface FireCallbacks {
-  updateWeaponSelector: (ant: Ant) => void;
-  updateBuffIndicator: (ant: Ant) => void;
-  setWeaponSelectorEnabled: (enabled: boolean) => void;
   setFireButtonDisabled: (disabled: boolean) => void;
   incrementShotsFired: (teamIndex: number) => void;
 }
@@ -93,9 +90,6 @@ export class FireSystem {
     ant.fire();
 
     // Update UI
-    this.callbacks.updateWeaponSelector(ant);
-    this.callbacks.updateBuffIndicator(ant);
-    this.callbacks.setWeaponSelectorEnabled(false);
     this.callbacks.setFireButtonDisabled(true);
 
     // Trigger effects

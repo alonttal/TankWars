@@ -889,7 +889,7 @@ export class Terrain {
 
     // Update cloud positions
     for (const cloud of this.clouds) {
-      cloud.x += (cloud.speed + wind * 0.3) * deltaTime;
+      cloud.x += (cloud.speed + wind * 1.5) * deltaTime;
       // Wrap around when cloud goes off screen
       if (cloud.x > MAP_WIDTH + cloud.width) {
         cloud.x = -cloud.width;

@@ -19,7 +19,6 @@ export interface AICallbacks {
   setFireButtonDisabled: (disabled: boolean) => void;
   updateAngleSlider: (angle: number) => void;
   updatePowerSlider: (power: number) => void;
-  updateWeaponSelector: (ant: Ant) => void;
 
   // Camera
   focusOnAnt: (ant: Ant) => void;
@@ -108,7 +107,6 @@ export class AIManager {
     if (!this.ai) return;
 
     this.ai.selectWeapon(aiAnt, target, this.callbacks.getTerrain());
-    this.callbacks.updateWeaponSelector(aiAnt);
 
     const shot = this.ai.calculateShot(
       aiAnt,

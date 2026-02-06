@@ -62,17 +62,7 @@ export class TurnManager {
   getTurnBannerText(): string {
     const ants = this.callbacks.getAnts();
     const ant = ants[this.currentPlayerIndex];
-    const gameMode = this.callbacks.getGameMode();
-
-    if (gameMode === 'single') {
-      if (ant.teamIndex === 0) {
-        return `YOUR TURN - ANT ${ant.teamAntIndex + 1}`;
-      } else {
-        return `CPU TURN - ANT ${ant.teamAntIndex + 1}`;
-      }
-    } else {
-      return `TEAM ${ant.teamIndex + 1} - ANT ${ant.teamAntIndex + 1}`;
-    }
+    return ant.name;
   }
 
   nextPlayer(): void {

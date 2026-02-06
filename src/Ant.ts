@@ -56,6 +56,7 @@ export class Ant {
   teamIndex: number; // Which team (0 or 1)
   teamAntIndex: number; // Index within the team (0-7)
   facingRight: boolean;
+  name: string; // Display name with rank prefix (e.g. "Pvt. Rex")
 
   // Weapon system
   selectedWeapon: WeaponType;
@@ -172,6 +173,7 @@ export class Ant {
     this.teamIndex = teamIndex;
     this.teamAntIndex = teamAntIndex;
     this.facingRight = facingRight;
+    this.name = `Ant ${teamAntIndex + 1}`;
     this.angle = facingRight ? 45 : 135;
     this.health = 100;
     this.isAlive = true;
