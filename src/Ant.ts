@@ -39,6 +39,7 @@ import {
   LightningArc,
   DissolveParticle,
   DamageNumber,
+  DeathAnimationState,
 } from './types/AntParticleTypes.ts';
 import { AntRenderer, AntRenderData } from './rendering/AntRenderer.ts';
 import { AntDeathSystem, AntDeathData, DeathParticles } from './systems/AntDeathSystem.ts';
@@ -839,35 +840,38 @@ export class Ant {
         this.deathAnimationStage = 1;
         this.deathAnimationTimer = 0.15;
         this.destructionFlash = 1.0;
+        const initState = this.getDeathAnimationState();
         this.deathSystem.initializeDeathEffect(
           this.getDeathData(),
           this.deathType,
           this.getDeathParticles(),
-          this.getDeathAnimationState()
+          initState
         );
+        this.syncFromState(initState);
       }
     }
 
     // Update death animation stages
     if (this.deathAnimationStage > 0) {
       this.deathAnimationTimer -= deltaTime;
+      const deathState = this.getDeathAnimationState();
       this.deathSystem.updateDeathAnimation(
         deltaTime,
         this.getDeathData(),
-        this.getDeathAnimationState(),
+        deathState,
         this.getDeathParticles()
       );
-      this.syncDeathAnimationState();
+      this.syncFromState(deathState);
     }
 
     // Update death-type specific particles
+    const particleState = this.getDeathAnimationState();
     this.deathSystem.updateDeathParticles(
       deltaTime,
       this.getDeathData(),
-      this.getDeathAnimationState(),
+      particleState,
       this.getDeathParticles()
     );
-    this.syncDeathParticles();
   }
 
   private getDeathData(): AntDeathData {
@@ -896,11 +900,7 @@ export class Ant {
     };
   }
 
-  private syncDeathParticles(): void {
-    // Particles are mutated in place, so no sync needed
-  }
-
-  private getDeathAnimationState() {
+  private getDeathAnimationState(): DeathAnimationState {
     return {
       deathAnimationStage: this.deathAnimationStage,
       deathAnimationTimer: this.deathAnimationTimer,
@@ -914,9 +914,7 @@ export class Ant {
     };
   }
 
-  private syncDeathAnimationState(): void {
-    const state = this.getDeathAnimationState();
-    // The death system mutates the state object directly, so sync it back
+  private syncFromState(state: DeathAnimationState): void {
     this.deathAnimationStage = state.deathAnimationStage;
     this.deathAnimationTimer = state.deathAnimationTimer;
     this.deathPopY = state.deathPopY;

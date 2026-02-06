@@ -709,12 +709,13 @@ export class AntDeathSystem {
         dust.y += dust.vy * deltaTime;
         dust.vy -= 15 * deltaTime;
         dust.vx += 8 * deltaTime;
-        if (state.deathAnimationStage === 3) {
+        // Fade during wind-down (stage 3) and after animation completes (stage 0)
+        if (state.deathAnimationStage === 3 || state.deathAnimationStage === 0) {
           dust.alpha -= deltaTime * 0.8;
         }
       }
     }
-    compactArray(particles.dustParticles, d => d.alpha > 0 || state.deathAnimationStage < 3);
+    compactArray(particles.dustParticles, d => d.alpha > 0);
 
     // Update lightning arcs
     for (const arc of particles.lightningArcs) {
