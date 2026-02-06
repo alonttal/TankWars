@@ -565,25 +565,68 @@ export class AntRenderer {
     this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, helmetDark);
     this.drawPixel(ctx, baseX + direction * 10, baseY - 15 + breatheOffset, helmetDark);
 
-    // === EYE (large cartoon eye) ===
+    // === EYE (expression system — highest priority wins) ===
+    // Drowsy cycle for non-current ants
+    const drowsyCycle = Math.sin(ant.idleTime * 0.3);
+    const isDrowsy = !isCurrentPlayer && !ant.isCelebrating && drowsyCycle > 0.5;
+    const isBlinking = !isCurrentPlayer && !ant.isCelebrating && Math.sin(ant.idleTime * 0.8) > 0.92;
+
     if (ant.painTime > 0 && ant.painIntensity > 0.5) {
-      // X-shaped pain eye for high damage
+      // 1. High pain → X-eyes in red
       this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#ff3333');
       this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#ff3333');
       this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, '#ff3333');
       this.drawPixel(ctx, baseX + direction * 10, baseY - 14 + breatheOffset, '#ff3333');
     } else if (ant.painTime > 0) {
-      // Squinted eye for lower damage - horizontal line
+      // 2. Low pain → squint
       this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
       this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#333');
       this.drawPixel(ctx, baseX + direction * 10, baseY - 14 + breatheOffset, '#fff');
+    } else if (ant.isCelebrating) {
+      // 3. Celebrating → happy ^_^ eyes
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 15 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, '#333');
+      this.drawPixel(ctx, baseX + direction * 10, baseY - 15 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#fff');
+    } else if (isCurrentPlayer && chargingPower >= 50) {
+      // 4a. Charging high (≥50%) → angry slit with heavy brow
+      const browColor = this.darkenColor(ant.color, 10);
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 15 + breatheOffset, browColor);
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, browColor);
+      this.drawPixel(ctx, baseX + direction * 10, baseY - 15 + breatheOffset, browColor);
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#cc2222');
+    } else if (isCurrentPlayer && chargingPower > 0) {
+      // 4b. Charging low (<50%) → tight focused eye
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 15 + breatheOffset, helmetDark);
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, helmetDark);
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#111');
+    } else if (isCurrentPlayer) {
+      // 5. Current player idle → determined look with eyebrow
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 15 + breatheOffset, helmetDark);
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, helmetDark);
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#111');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#fff');
+    } else if (ant.health < 25) {
+      // 6. Low health (<25) → worried wide eyes
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, '#111');
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 13 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#fff');
+    } else if (isBlinking) {
+      // 7a. Full blink — no eye pixels at all
+      // (intentionally empty)
+    } else if (isDrowsy) {
+      // 7b. Sleepy half-closed eyes
+      this.drawPixel(ctx, baseX + direction * 8, baseY - 13 + breatheOffset, '#fff');
+      this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#333');
     } else {
-      // Normal eye
-      // Eye white
+      // 8. Normal → default eye
       this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, '#fff');
       this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#fff');
       this.drawPixel(ctx, baseX + direction * 9, baseY - 13 + breatheOffset, '#fff');
-      // Pupil
       this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#111');
     }
 
