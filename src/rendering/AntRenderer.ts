@@ -567,9 +567,9 @@ export class AntRenderer {
 
     // === EYE (expression system — highest priority wins) ===
     // Drowsy cycle for non-current ants
-    const drowsyCycle = Math.sin(ant.idleTime * 0.3);
-    const isDrowsy = !isCurrentPlayer && !ant.isCelebrating && drowsyCycle > 0.5;
-    const isBlinking = !isCurrentPlayer && !ant.isCelebrating && Math.sin(ant.idleTime * 0.8) > 0.92;
+    const drowsyCycle = Math.sin(ant.idleTime * 0.15);
+    const isDrowsy = !isCurrentPlayer && !ant.isCelebrating && drowsyCycle > 0.85;
+    const isBlinking = !isCurrentPlayer && !ant.isCelebrating && Math.sin(ant.idleTime * 0.4) > 0.97;
 
     if (ant.painTime > 0 && ant.painIntensity > 0.5) {
       // 1. High pain → X-eyes in red
