@@ -80,6 +80,7 @@ export class InputManager {
   // Weapon menu state
   weaponMenuOpen: boolean = false;
   weaponMenuPosition: { x: number; y: number } = { x: 0, y: 0 };
+  private weaponMenuClosedAt: number = 0;
 
   constructor(callbacks: InputCallbacks) {
     this.callbacks = callbacks;
@@ -266,6 +267,12 @@ export class InputManager {
     if (this.weaponMenuOpen) {
       this.callbacks.handleWeaponMenuClick(clickX, clickY);
       this.weaponMenuOpen = false;
+      this.weaponMenuClosedAt = Date.now();
+      return;
+    }
+
+    // Guard: don't fire immediately after closing weapon menu (prevents accidental instant-fire)
+    if (Date.now() - this.weaponMenuClosedAt < 200) {
       return;
     }
 
