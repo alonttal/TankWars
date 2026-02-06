@@ -3,7 +3,6 @@ import { GameMode, HUDHealthAnimation } from '../types/GameTypes.ts';
 import { Ant } from '../Ant.ts';
 import { CameraSystem } from '../systems/CameraSystem.ts';
 import { POWERUP_CONFIGS } from '../powerups/PowerUpTypes.ts';
-import { WEAPON_CONFIGS } from '../weapons/WeaponTypes.ts';
 
 export class HUDRenderer {
   hudHealthAnimations: HUDHealthAnimation[] = [];
@@ -74,6 +73,31 @@ export class HUDRenderer {
     this.weaponChangeFlash = 1;
   }
 
+  /** Draw corner bracket accents on a panel */
+  private drawCornerBrackets(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, w: number, h: number,
+    color: string, len: number = 10, inset: number = 3
+  ): void {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'square';
+    const coords = [
+      [x + inset, y + inset + len, x + inset, y + inset, x + inset + len, y + inset],
+      [x + w - inset - len, y + inset, x + w - inset, y + inset, x + w - inset, y + inset + len],
+      [x + inset, y + h - inset - len, x + inset, y + h - inset, x + inset + len, y + h - inset],
+      [x + w - inset - len, y + h - inset, x + w - inset, y + h - inset, x + w - inset, y + h - inset - len],
+    ];
+    for (const c of coords) {
+      ctx.beginPath();
+      ctx.moveTo(c[0], c[1]);
+      ctx.lineTo(c[2], c[3]);
+      ctx.lineTo(c[4], c[5]);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+  }
+
   renderTurnInfoPanel(
     ctx: CanvasRenderingContext2D,
     turnTimeRemaining: number,
@@ -81,8 +105,8 @@ export class HUDRenderer {
     currentAnt: Ant | null,
     state: string
   ): void {
-    const panelW = 240;
-    const panelH = 50;
+    const panelW = 220;
+    const panelH = 44;
     const panelX = BASE_WIDTH / 2 - panelW / 2;
     const panelY = 4;
 
@@ -90,67 +114,73 @@ export class HUDRenderer {
 
     const teamColor = currentAnt?.color || '#fff';
 
-    // Panel background with team-color glow
+    // Gradient background for depth
+    const bgGrad = ctx.createLinearGradient(0, panelY, 0, panelY + panelH);
+    bgGrad.addColorStop(0, 'rgba(35, 35, 50, 0.8)');
+    bgGrad.addColorStop(1, 'rgba(12, 12, 18, 0.85)');
     ctx.shadowColor = teamColor;
     ctx.shadowBlur = 10;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillStyle = bgGrad;
     ctx.beginPath();
     ctx.roundRect(panelX, panelY, panelW, panelH, 6);
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Team color accent strip along top
-    ctx.fillStyle = teamColor;
-    ctx.fillRect(panelX + 6, panelY, panelW - 12, 3);
+    // Top highlight (metallic edge)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(panelX + 10, panelY + 1.5);
+    ctx.lineTo(panelX + panelW - 10, panelY + 1.5);
+    ctx.stroke();
 
-    // Border
+    // Team-color inner glow at top
+    const innerGlow = ctx.createLinearGradient(0, panelY, 0, panelY + 14);
+    innerGlow.addColorStop(0, teamColor + '28');
+    innerGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = innerGlow;
+    ctx.beginPath();
+    ctx.roundRect(panelX + 1, panelY + 1, panelW - 2, 14, 5);
+    ctx.fill();
+
+    // Subtle border
     ctx.strokeStyle = teamColor;
     ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.5;
+    ctx.globalAlpha = 0.3;
     ctx.beginPath();
     ctx.roundRect(panelX, panelY, panelW, panelH, 6);
     ctx.stroke();
     ctx.globalAlpha = 1;
 
+    // Corner brackets
+    this.drawCornerBrackets(ctx, panelX, panelY, panelW, panelH, teamColor + 'AA', 9, 2);
+
     if (state === 'AI_THINKING') {
-      // AI thinking display
       ctx.fillStyle = '#fff';
-      ctx.font = 'bold 14px "Courier New"';
+      ctx.font = 'bold 13px "Courier New"';
       ctx.textAlign = 'center';
       const dots = '.'.repeat(Math.floor((Date.now() / 300) % 4));
-      ctx.fillText(`CPU Thinking${dots}`, BASE_WIDTH / 2, panelY + 22);
+      ctx.fillText(`CPU Thinking${dots}`, BASE_WIDTH / 2, panelY + 20);
 
-      // Animated glow bar
+      // Animated scanner bar
       const glowPhase = (Date.now() % 2000) / 2000;
-      const gradient = ctx.createLinearGradient(panelX + 10, 0, panelX + panelW - 10, 0);
-      gradient.addColorStop(Math.max(0, glowPhase - 0.2), 'transparent');
-      gradient.addColorStop(glowPhase, 'rgba(136, 170, 255, 0.5)');
-      gradient.addColorStop(Math.min(1, glowPhase + 0.2), 'transparent');
-      ctx.fillStyle = gradient;
+      const scanGrad = ctx.createLinearGradient(panelX + 12, 0, panelX + panelW - 12, 0);
+      scanGrad.addColorStop(Math.max(0, glowPhase - 0.15), 'transparent');
+      scanGrad.addColorStop(glowPhase, 'rgba(136, 170, 255, 0.6)');
+      scanGrad.addColorStop(Math.min(1, glowPhase + 0.15), 'transparent');
+      ctx.fillStyle = scanGrad;
       ctx.beginPath();
-      ctx.roundRect(panelX + 10, panelY + 34, panelW - 20, 5, 2);
+      ctx.roundRect(panelX + 12, panelY + 30, panelW - 24, 4, 2);
       ctx.fill();
     } else if (currentAnt) {
-      // Ant name
+      // Ant name with subtle text shadow
+      ctx.shadowColor = teamColor;
+      ctx.shadowBlur = 6;
       ctx.fillStyle = '#fff';
-      ctx.font = 'bold 12px "Courier New"';
+      ctx.font = 'bold 13px "Courier New"';
       ctx.textAlign = 'center';
-      ctx.fillText(currentAnt.name, BASE_WIDTH / 2, panelY + 16);
-
-      // Weapon name + ammo (with flash on change)
-      const weaponConfig = WEAPON_CONFIGS[currentAnt.selectedWeapon];
-      const ammo = currentAnt.getAmmo(currentAnt.selectedWeapon);
-      const ammoStr = ammo === -1 ? '\u221E' : `${ammo}`;
-      let weaponAlpha = 0.6;
-      if (this.weaponChangeFlash > 0) {
-        weaponAlpha = 0.6 + 0.4 * this.weaponChangeFlash;
-      }
-      ctx.save();
-      ctx.globalAlpha = weaponAlpha;
-      ctx.fillStyle = this.weaponChangeFlash > 0 ? '#FFD700' : '#aaa';
-      ctx.font = '9px "Courier New"';
-      ctx.fillText(`${weaponConfig.name} [${ammoStr}]`, BASE_WIDTH / 2, panelY + 27);
-      ctx.restore();
+      ctx.fillText(currentAnt.name, BASE_WIDTH / 2, panelY + 17);
+      ctx.shadowBlur = 0;
 
       // Timer bar
       const timeRatio = turnTimeRemaining / maxTurnTime;
@@ -159,31 +189,47 @@ export class HUDRenderer {
       else if (timeRatio > 0.25) timerColor = '#FFD93D';
       else timerColor = '#FF6B6B';
 
-      const barX = panelX + 10;
-      const barY = panelY + 33;
-      const barW = panelW - 20;
-      const barH = 10;
+      const barX = panelX + 14;
+      const barY = panelY + 25;
+      const barW = panelW - 28;
+      const barH = 12;
 
-      // Bar background
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      // Bar background with inner shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       ctx.beginPath();
       ctx.roundRect(barX, barY, barW, barH, 3);
       ctx.fill();
-
-      // Bar fill (pulse when <5s)
-      let timerAlpha = 1;
-      if (turnTimeRemaining < 5) {
-        timerAlpha = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() / 150));
-      }
-      ctx.save();
-      ctx.globalAlpha = timerAlpha;
-      ctx.fillStyle = timerColor;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(barX, barY, Math.max(barW * timeRatio, 0), barH, 3);
-      ctx.fill();
-      ctx.restore();
+      ctx.roundRect(barX, barY, barW, barH, 3);
+      ctx.stroke();
 
-      // Seconds text on the bar
+      // Bar fill with gradient + pulse when <5s
+      const fillW = Math.max(barW * timeRatio, 0);
+      if (fillW > 0) {
+        ctx.save();
+        if (turnTimeRemaining < 5) {
+          const pulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() / 150));
+          ctx.globalAlpha = pulse;
+          ctx.shadowColor = timerColor;
+          ctx.shadowBlur = 8;
+        }
+        const barGrad = ctx.createLinearGradient(0, barY, 0, barY + barH);
+        barGrad.addColorStop(0, timerColor);
+        barGrad.addColorStop(0.4, timerColor);
+        barGrad.addColorStop(1, timerColor + '88');
+        ctx.fillStyle = barGrad;
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, fillW, barH, 3);
+        ctx.fill();
+        // Top highlight on fill
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.fillRect(barX + 2, barY + 1, Math.max(fillW - 4, 0), 2);
+        ctx.restore();
+      }
+
+      // Seconds text
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 8px "Courier New"';
       ctx.textAlign = 'center';
@@ -360,78 +406,83 @@ export class HUDRenderer {
       const isLeft = teamIdx === 0;
       const panelX = isLeft ? padding : BASE_WIDTH - padding - teamPanelWidth;
       const panelY = 5;
-      const panelH = 80;
+      const panelH = 68;
+      const tc = TEAM_COLORS[teamIdx];
 
       const teamAnts = ants.filter(a => a.teamIndex === teamIdx);
       const aliveCount = teamAnts.filter(a => a.isAlive).length;
-      const totalHealth = teamAnts.reduce((sum, a) => sum + (a.isAlive ? a.health : 0), 0);
-      const maxHealth = teamAnts.length * 100;
-      const healthRatio = totalHealth / maxHealth;
 
       ctx.save();
 
-      // Panel background with team glow
-      ctx.shadowColor = TEAM_COLORS[teamIdx];
+      // Gradient background for depth
+      const bgGrad = ctx.createLinearGradient(0, panelY, 0, panelY + panelH);
+      bgGrad.addColorStop(0, 'rgba(35, 35, 50, 0.8)');
+      bgGrad.addColorStop(1, 'rgba(12, 12, 18, 0.85)');
+      ctx.shadowColor = tc;
       ctx.shadowBlur = 8;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      ctx.fillStyle = bgGrad;
       ctx.beginPath();
       ctx.roundRect(panelX, panelY, teamPanelWidth, panelH, 6);
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Team color accent strip on inner edge
-      ctx.fillStyle = TEAM_COLORS[teamIdx];
-      if (isLeft) {
-        ctx.fillRect(panelX, panelY + 6, 3, panelH - 12);
-      } else {
-        ctx.fillRect(panelX + teamPanelWidth - 3, panelY + 6, 3, panelH - 12);
-      }
-
-      // Border
-      ctx.strokeStyle = TEAM_COLORS[teamIdx];
+      // Top highlight (metallic edge)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(panelX + 10, panelY + 1.5);
+      ctx.lineTo(panelX + teamPanelWidth - 10, panelY + 1.5);
+      ctx.stroke();
+
+      // Team-color inner glow at top
+      const innerGlow = ctx.createLinearGradient(0, panelY, 0, panelY + 14);
+      innerGlow.addColorStop(0, tc + '28');
+      innerGlow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = innerGlow;
+      ctx.beginPath();
+      ctx.roundRect(panelX + 1, panelY + 1, teamPanelWidth - 2, 14, 5);
+      ctx.fill();
+
+      // Subtle border
+      ctx.strokeStyle = tc;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.3;
       ctx.beginPath();
       ctx.roundRect(panelX, panelY, teamPanelWidth, panelH, 6);
       ctx.stroke();
       ctx.globalAlpha = 1;
 
+      // Corner brackets
+      this.drawCornerBrackets(ctx, panelX, panelY, teamPanelWidth, panelH, tc + 'AA', 9, 2);
+
       ctx.restore();
 
-      // Team name header
+      // Team name header with glow
+      ctx.save();
+      ctx.shadowColor = tc;
+      ctx.shadowBlur = 4;
+      ctx.fillStyle = tc;
+      ctx.font = 'bold 9px "Courier New"';
+      ctx.textAlign = 'center';
       const teamName = gameMode === 'single'
         ? (teamIdx === 0 ? 'YOUR TEAM' : 'CPU TEAM')
         : `TEAM ${teamIdx + 1}`;
-      ctx.fillStyle = TEAM_COLORS[teamIdx];
-      ctx.font = 'bold 9px "Courier New"';
-      ctx.textAlign = 'center';
-      ctx.fillText(teamName, panelX + teamPanelWidth / 2, panelY + 12);
+      ctx.fillText(teamName, panelX + teamPanelWidth / 2, panelY + 13);
+      ctx.restore();
 
-      // Alive count
-      ctx.fillStyle = '#666';
+      // Alive count - subtle
+      ctx.fillStyle = '#555';
       ctx.font = '7px "Courier New"';
-      ctx.fillText(`${aliveCount}/${ANTS_PER_TEAM}`, panelX + teamPanelWidth / 2, panelY + 21);
+      ctx.textAlign = 'center';
+      ctx.fillText(`${aliveCount}/${ANTS_PER_TEAM}`, panelX + teamPanelWidth / 2, panelY + 22);
 
-      // Aggregate team health bar
-      const aggBarX = panelX + 10;
-      const aggBarY = panelY + 25;
-      const aggBarW = teamPanelWidth - 20;
-      const aggBarH = 4;
-
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      // Separator line
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(aggBarX, aggBarY, aggBarW, aggBarH, 2);
-      ctx.fill();
-
-      let aggColor: string;
-      if (healthRatio > 0.5) aggColor = '#4ECB71';
-      else if (healthRatio > 0.25) aggColor = '#FFD93D';
-      else aggColor = '#FF6B6B';
-
-      ctx.fillStyle = aggColor;
-      ctx.beginPath();
-      ctx.roundRect(aggBarX, aggBarY, Math.max(aggBarW * healthRatio, 0), aggBarH, 2);
-      ctx.fill();
+      ctx.moveTo(panelX + 12, panelY + 25);
+      ctx.lineTo(panelX + teamPanelWidth - 12, panelY + 25);
+      ctx.stroke();
 
       // Individual ant health bars
       for (let i = 0; i < teamAnts.length; i++) {
@@ -439,8 +490,10 @@ export class HUDRenderer {
         const row = Math.floor(i / barsPerRow);
         const col = i % barsPerRow;
 
-        const barX = panelX + 8 + col * (miniBarWidth + barSpacing);
-        const barY = panelY + 34 + row * (miniBarHeight + rowSpacing);
+        const gridWidth = barsPerRow * miniBarWidth + (barsPerRow - 1) * barSpacing;
+        const gridOffsetX = (teamPanelWidth - gridWidth) / 2;
+        const barX = panelX + gridOffsetX + col * (miniBarWidth + barSpacing);
+        const barY = panelY + 29 + row * (miniBarHeight + rowSpacing);
 
         const antIndex = ant.playerIndex;
         if (this.hudHealthAnimations[antIndex]) {
@@ -456,7 +509,8 @@ export class HUDRenderer {
         const isCurrent = ant.playerIndex === currentPlayerIndex;
         const isDead = !ant.isAlive;
 
-        ctx.fillStyle = isDead ? '#1a1a1a' : '#333';
+        // Bar background with inner shadow
+        ctx.fillStyle = isDead ? 'rgba(10, 10, 10, 0.6)' : 'rgba(0, 0, 0, 0.4)';
         ctx.beginPath();
         ctx.roundRect(barX, barY, miniBarWidth, miniBarHeight, 2);
         ctx.fill();
@@ -467,31 +521,50 @@ export class HUDRenderer {
           else if (healthPercent > 0.25) healthColor = '#FFD93D';
           else healthColor = '#FF6B6B';
 
-          ctx.fillStyle = healthColor;
+          // Bar fill with gradient
+          const hBarGrad = ctx.createLinearGradient(0, barY, 0, barY + miniBarHeight);
+          hBarGrad.addColorStop(0, healthColor);
+          hBarGrad.addColorStop(1, healthColor + '88');
+          ctx.fillStyle = hBarGrad;
           ctx.beginPath();
           ctx.roundRect(barX, barY, miniBarWidth * healthPercent, miniBarHeight, 2);
           ctx.fill();
+
+          // Tiny top highlight on bar fill
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+          const fillW = miniBarWidth * healthPercent;
+          if (fillW > 3) {
+            ctx.fillRect(barX + 1, barY, fillW - 2, 1);
+          }
+
+          // Subtle bar outline
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.roundRect(barX, barY, miniBarWidth, miniBarHeight, 2);
+          ctx.stroke();
         }
 
         if (isCurrent && (state === 'PLAYING' || state === 'AI_THINKING')) {
           const pulse = 0.7 + 0.3 * Math.abs(Math.sin(Date.now() / 400));
           ctx.save();
           ctx.shadowColor = '#FFD700';
-          ctx.shadowBlur = 4 * pulse;
+          ctx.shadowBlur = 5 * pulse;
           ctx.strokeStyle = '#FFD700';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 1.5;
           ctx.beginPath();
           ctx.roundRect(barX - 1, barY - 1, miniBarWidth + 2, miniBarHeight + 2, 2);
           ctx.stroke();
           ctx.restore();
         } else if (isDead) {
-          ctx.strokeStyle = '#444';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 0.5;
           ctx.beginPath();
           ctx.roundRect(barX, barY, miniBarWidth, miniBarHeight, 2);
           ctx.stroke();
 
-          ctx.strokeStyle = '#555';
+          // X mark
+          ctx.strokeStyle = '#444';
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(barX + 2, barY + 2);
@@ -503,7 +576,7 @@ export class HUDRenderer {
 
         // Short name label under bar
         const shortName = ant.name.split(' ').pop() || `${i + 1}`;
-        ctx.fillStyle = isDead ? '#444' : (isCurrent ? '#FFD700' : '#777');
+        ctx.fillStyle = isDead ? '#333' : (isCurrent ? '#FFD700' : '#666');
         ctx.font = isCurrent ? 'bold 7px "Courier New"' : '7px "Courier New"';
         ctx.textAlign = 'center';
         ctx.fillText(shortName, barX + miniBarWidth / 2, barY + miniBarHeight + 8);
