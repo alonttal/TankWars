@@ -51,8 +51,8 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
   bazooka: {
     type: 'bazooka',
     name: 'Heavy Bazooka',
-    damage: 80,
-    explosionRadius: 50,
+    damage: 70,
+    explosionRadius: 48,
     projectileSpeed: 0.6,
     projectileSize: 1.5,
     ammo: 3,
@@ -73,11 +73,11 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
   shotgun: {
     type: 'shotgun',
     name: 'Cluster Bomb',
-    damage: 15, // Per pellet
-    explosionRadius: 12,
-    projectileSpeed: 1.0,
+    damage: 20, // Per pellet
+    explosionRadius: 15,
+    projectileSpeed: 1.1,
     projectileSize: 0.6,
-    ammo: 2,
+    ammo: 3,
     maxBounces: 0,
     clusterCount: 0,
     clusterDamage: 0,
@@ -88,14 +88,14 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
     description: '8 pellets with spread',
     keyBinding: '3',
     pelletCount: 8,
-    spreadAngle: 15, // Degrees of spread
+    spreadAngle: 12, // Degrees of spread
     gravityMultiplier: 1.0, // Normal gravity like standard shell
     requiresCharging: true, // Requires power charging like standard
   },
   sniper: {
     type: 'sniper',
     name: 'Sniper',
-    damage: 70,
+    damage: 60,
     explosionRadius: 15,
     projectileSpeed: 2.5, // Very fast
     projectileSize: 0.4, // Small bullet
@@ -117,7 +117,7 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
   napalm: {
     type: 'napalm',
     name: 'Fire Bomb',
-    damage: 25,
+    damage: 35,
     explosionRadius: 45,
     projectileSpeed: 0.85,
     projectileSize: 1.2,
@@ -126,8 +126,8 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
     clusterCount: 0,
     clusterDamage: 0,
     craterDepthMultiplier: 0.8,
-    burnDuration: 6.0, // 6 seconds of fire
-    burnDamagePerSecond: 8, // 8 damage per second
+    burnDuration: 5.0, // 5 seconds of fire
+    burnDamagePerSecond: 10, // 10 damage per second
     trailColor: { r: 255, g: 100, b: 0 }, // Orange trail
     description: 'Bounces and creates fire',
     keyBinding: '5',
@@ -139,7 +139,7 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
   grenade: {
     type: 'grenade',
     name: 'Bouncing Grenade',
-    damage: 40,
+    damage: 45,
     explosionRadius: 40,
     projectileSpeed: 0.9,
     projectileSize: 1.0,
