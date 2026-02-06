@@ -48,6 +48,13 @@ export class Game {
   // Menu
   private menuItems: MenuItem[];
   private selectedMenuItem: number;
+  private menuState: 'main' | 'difficulty' = 'main';
+  private selectedDifficultyIndex: number = 0;
+  private readonly difficultyOptions: { label: string; difficulty: AIDifficulty; description: string }[] = [
+    { label: 'EASY', difficulty: 'easy', description: 'Relaxed gameplay, forgiving AI' },
+    { label: 'MEDIUM', difficulty: 'medium', description: 'Balanced challenge for most players' },
+    { label: 'HARD', difficulty: 'hard', description: 'Ruthless AI, precise shots' },
+  ];
 
   // Pause menu
   private pauseMenuItems: MenuItem[];
@@ -254,7 +261,7 @@ export class Game {
     // Menu setup
     this.selectedMenuItem = 0;
     this.menuItems = [
-      { label: 'SINGLE PLAYER', action: () => this.startGame('single', 'medium') },
+      { label: 'SINGLE PLAYER', action: () => this.openDifficultyMenu() },
       { label: 'MULTIPLAYER', action: () => this.startGame('multi') },
     ];
 
@@ -304,6 +311,23 @@ export class Game {
       getSelectedSettingIndex: () => this.selectedSettingIndex,
       setSelectedSettingIndex: (index: number) => { this.selectedSettingIndex = index; },
 
+      // Difficulty submenu
+      getMenuState: () => this.menuState,
+      getDifficultyItemCount: () => this.difficultyOptions.length + 1, // +1 for back
+      getSelectedDifficultyIndex: () => this.selectedDifficultyIndex,
+      setSelectedDifficultyIndex: (index: number) => { this.selectedDifficultyIndex = index; },
+      selectDifficulty: () => {
+        if (this.selectedDifficultyIndex < this.difficultyOptions.length) {
+          const diff = this.difficultyOptions[this.selectedDifficultyIndex];
+          this.menuState = 'main';
+          this.startGame('single', diff.difficulty);
+        } else {
+          // Back option
+          this.menuState = 'main';
+        }
+      },
+      backToMainMenu: () => { this.menuState = 'main'; },
+
       // State transitions
       pauseGame: () => this.gameStateManager.pauseGame(),
       resumeGame: () => this.gameStateManager.resumeGame(),
@@ -312,6 +336,7 @@ export class Game {
       goToMenu: () => { this.state = 'MENU'; },
       resetMenu: () => {
         this.selectedMenuItem = 0;
+        this.menuState = 'main';
         this.menuRenderer.reset();
       },
 
@@ -733,9 +758,9 @@ export class Game {
     }
     compactArray(this.burnAreas, b => !b.isComplete());
 
-    // Update explosions
+    // Update explosions (pass wind for dust cloud drift)
     for (const explosion of this.explosions) {
-      explosion.update(effectiveDelta);
+      explosion.update(effectiveDelta, this.wind);
     }
     compactArray(this.explosions, e => e.active);
 
@@ -799,7 +824,9 @@ export class Game {
     this.lastHitPosition = { x: hitX, y: hitY };
     this.hitDelayTimer = 2.0; // 2 second delay on hit location
 
-    const explosion = new Explosion(hitX, hitY, weaponConfig.explosionRadius, finalDamage);
+    // Get terrain colors for debris
+    const terrainColors = this.terrain.getTerrainColors();
+    const explosion = new Explosion(hitX, hitY, weaponConfig.explosionRadius, finalDamage, terrainColors);
     explosion.applyDamageWithConfig(
       this.ants,
       this.terrain,
@@ -967,6 +994,12 @@ export class Game {
       if (this.winner) {
         this.effects.spawnConfetti();
         this.effects.spawnInitialFireworks();
+
+        // Start victory celebration for all surviving ants on winning team
+        const winningAnts = this.winningTeam === 0 ? team0Alive : team1Alive;
+        for (const ant of winningAnts) {
+          ant.startVictoryCelebration();
+        }
       }
 
       const isVictory = this.gameMode === 'single' ? this.winningTeam === 0 : true;
@@ -1037,7 +1070,11 @@ export class Game {
     this.ctx.scale(SCALE_X, SCALE_Y);
 
     if (this.state === 'MENU') {
-      this.menuRenderer.renderMenu(this.ctx, this.menuItems, this.selectedMenuItem);
+      if (this.menuState === 'difficulty') {
+        this.menuRenderer.renderDifficultyMenu(this.ctx, this.difficultyOptions, this.selectedDifficultyIndex);
+      } else {
+        this.menuRenderer.renderMenu(this.ctx, this.menuItems, this.selectedMenuItem);
+      }
       this.ctx.restore();
       return;
     }
@@ -1159,6 +1196,12 @@ export class Game {
     }
 
     this.ctx.restore();
+  }
+
+  private openDifficultyMenu(): void {
+    this.menuState = 'difficulty';
+    this.selectedDifficultyIndex = 0;
+    this.menuRenderer.resetDifficultySlideIn();
   }
 
   private startGame(mode: GameMode, aiDifficulty?: AIDifficulty): void {
@@ -1396,6 +1439,12 @@ export class Game {
       if (this.winner) {
         this.effects.spawnConfetti();
         this.effects.spawnInitialFireworks();
+
+        // Start victory celebration for all surviving ants on winning team
+        const winningAnts = this.winningTeam === 0 ? team0Alive : team1Alive;
+        for (const ant of winningAnts) {
+          ant.startVictoryCelebration();
+        }
       }
 
       const isVictory = this.gameMode === 'single' ? this.winningTeam === 0 : true;

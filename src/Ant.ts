@@ -153,6 +153,13 @@ export class Ant {
   private footstepTimer: number;
   private wasFallingFast: boolean;
 
+  // Victory celebration state
+  private isCelebrating: boolean;
+  private celebrationTime: number;
+  private celebrationBounceY: number;
+  private celebrationBounceVy: number;
+  private celebrationPhase: number; // 0: initial jump, 1: bouncing, 2: victory pose
+
   // Rendering and death systems
   private renderer: AntRenderer;
   private deathSystem: AntDeathSystem;
@@ -233,6 +240,13 @@ export class Ant {
     this.movementBarAlpha = 0;
     this.footstepTimer = 0;
     this.wasFallingFast = false;
+
+    // Victory celebration initialization
+    this.isCelebrating = false;
+    this.celebrationTime = 0;
+    this.celebrationBounceY = 0;
+    this.celebrationBounceVy = 0;
+    this.celebrationPhase = 0;
 
     // Initialize subsystems
     this.renderer = new AntRenderer();
@@ -622,6 +636,45 @@ export class Ant {
     this.idleTime += deltaTime * 2;
     this.glowPulse += deltaTime * 4;
 
+    // Update victory celebration animation
+    if (this.isCelebrating) {
+      this.celebrationTime += deltaTime;
+
+      if (this.celebrationPhase === 0) {
+        // Phase 0: Initial jump (0.3s, velocity -80px/s, gravity 300px/s²)
+        this.celebrationBounceY += this.celebrationBounceVy * deltaTime;
+        this.celebrationBounceVy += 300 * deltaTime; // Gravity
+
+        // When landing (bounceY returns to 0 or positive), transition to phase 1
+        if (this.celebrationBounceY >= 0 && this.celebrationBounceVy > 0) {
+          this.celebrationBounceY = 0;
+          this.celebrationBounceVy = -40 - Math.random() * 30; // Start small bounce
+          this.celebrationPhase = 1;
+        }
+      } else if (this.celebrationPhase === 1) {
+        // Phase 1: Continuous small bounces
+        this.celebrationBounceY += this.celebrationBounceVy * deltaTime;
+        this.celebrationBounceVy += 300 * deltaTime; // Gravity
+
+        // When landing, do another small bounce
+        if (this.celebrationBounceY >= 0 && this.celebrationBounceVy > 0) {
+          this.celebrationBounceY = 0;
+          this.celebrationBounceVy = -40 - Math.random() * 30; // Random small jump
+        }
+
+        // After 3 seconds, transition to victory pose
+        if (this.celebrationTime > 3.0) {
+          // Wait until landed to transition
+          if (this.celebrationBounceY >= 0) {
+            this.celebrationBounceY = 0;
+            this.celebrationBounceVy = 0;
+            this.celebrationPhase = 2;
+          }
+        }
+      }
+      // Phase 2: Victory pose - static, no bounce updates needed
+    }
+
     if (this.damageFlash > 0) {
       this.damageFlash -= deltaTime;
     }
@@ -895,6 +948,40 @@ export class Ant {
     return this.deathType;
   }
 
+  // Victory celebration methods
+  startVictoryCelebration(): void {
+    if (!this.isAlive) return;
+    this.isCelebrating = true;
+    this.celebrationTime = 0;
+    this.celebrationPhase = 0;
+    this.celebrationBounceY = 0;
+    this.celebrationBounceVy = -80; // Initial jump velocity
+  }
+
+  stopCelebration(): void {
+    this.isCelebrating = false;
+    this.celebrationTime = 0;
+    this.celebrationBounceY = 0;
+    this.celebrationBounceVy = 0;
+    this.celebrationPhase = 0;
+  }
+
+  getIsCelebrating(): boolean {
+    return this.isCelebrating;
+  }
+
+  getCelebrationBounceY(): number {
+    return this.celebrationBounceY;
+  }
+
+  getCelebrationTime(): number {
+    return this.celebrationTime;
+  }
+
+  getCelebrationPhase(): number {
+    return this.celebrationPhase;
+  }
+
   // Weapon management
   selectWeapon(weapon: WeaponType): boolean {
     const ammo = this.weaponAmmo.get(weapon);
@@ -1070,6 +1157,10 @@ export class Ant {
       fireParticles: this.fireParticles,
       damageNumbers: this.damageNumbers,
       activeBuffs: this.activeBuffs,
+      isCelebrating: this.isCelebrating,
+      celebrationBounceY: this.celebrationBounceY,
+      celebrationTime: this.celebrationTime,
+      celebrationPhase: this.celebrationPhase,
     };
 
     this.renderer.render(ctx, renderData, isCurrentPlayer, chargingPower);

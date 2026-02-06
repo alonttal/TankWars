@@ -863,6 +863,16 @@ export class Terrain {
     return this.theme.name;
   }
 
+  // Get terrain colors for explosion debris
+  getTerrainColors(): { topSoil: string; mainSoil: string; darkSoil: string; deepRock: string } {
+    return {
+      topSoil: this.theme.topSoil,
+      mainSoil: this.theme.mainSoil,
+      darkSoil: this.theme.darkSoil,
+      deepRock: this.theme.deepRock,
+    };
+  }
+
   // Check if a world position collides with terrain - inlined for hot path performance
   isPointInTerrain(x: number, y: number): boolean {
     const ix = Math.floor(x / TERRAIN_SCALE);

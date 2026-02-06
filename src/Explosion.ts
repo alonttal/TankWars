@@ -48,6 +48,40 @@ interface SmokeWaveParticle {
   size: number;
 }
 
+interface TerrainDebrisChunk {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rotation: number;
+  rotationSpeed: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  color: string;
+  vertices: { x: number; y: number }[]; // Irregular polygon shape
+}
+
+interface LingeringDustCloud {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  maxSize: number;
+  life: number;
+  maxLife: number;
+  alpha: number;
+  color: string;
+}
+
+export interface TerrainColors {
+  topSoil: string;
+  mainSoil: string;
+  darkSoil: string;
+  deepRock: string;
+}
+
 export class Explosion {
   x: number;
   y: number;
@@ -71,7 +105,11 @@ export class Explosion {
   secondaryAlpha: number;
   brightnessFlash: number;
 
-  constructor(x: number, y: number, explosionRadius: number = EXPLOSION_RADIUS, _baseDamage: number = 50) {
+  // Terrain debris and lingering dust
+  terrainDebrisChunks: TerrainDebrisChunk[];
+  lingeringDustClouds: LingeringDustCloud[];
+
+  constructor(x: number, y: number, explosionRadius: number = EXPLOSION_RADIUS, _baseDamage: number = 50, terrainColors?: TerrainColors) {
     this.x = x;
     this.y = y;
     this.radius = 5;
@@ -134,7 +172,10 @@ export class Explosion {
 
     // Create debris chunks (flying terrain pieces)
     this.debrisChunks = [];
-    const dirtColors = ['#8B4513', '#A0522D', '#6B4423', '#5C4033', '#704214'];
+    // Use terrain colors if provided, otherwise default dirt colors
+    const dirtColors = terrainColors
+      ? [terrainColors.topSoil, terrainColors.mainSoil, terrainColors.darkSoil, terrainColors.deepRock]
+      : ['#8B4513', '#A0522D', '#6B4423', '#5C4033', '#704214'];
     for (let i = 0; i < 10; i++) {
       const angle = Math.random() * Math.PI - Math.PI / 2; // Upward arc (-180 to 0)
       const speed = 80 + Math.random() * 120;
@@ -148,6 +189,49 @@ export class Explosion {
         life: 0.8 + Math.random() * 0.6,
         size: 4 + Math.random() * 6,
         color: dirtColors[Math.floor(Math.random() * dirtColors.length)],
+      });
+    }
+
+    // Create larger terrain debris chunks with irregular shapes (15 particles)
+    this.terrainDebrisChunks = [];
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI - Math.PI / 2; // Upward arc
+      const speed = 100 + Math.random() * 150;
+      const chunkSize = 6 + Math.random() * 10;
+      this.terrainDebrisChunks.push({
+        x: x + (Math.random() - 0.5) * explosionRadius * 0.6,
+        y: y,
+        vx: Math.cos(angle) * speed * (Math.random() > 0.5 ? 1 : -1),
+        vy: Math.sin(angle) * speed - 100, // Strong upward velocity
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 12,
+        life: 1.2 + Math.random() * 0.8,
+        maxLife: 2.0,
+        size: chunkSize,
+        color: dirtColors[Math.floor(Math.random() * dirtColors.length)],
+        vertices: this.generateRandomShape(5 + Math.floor(Math.random() * 3)),
+      });
+    }
+
+    // Create lingering dust clouds (8 particles)
+    this.lingeringDustClouds = [];
+    const dustColors = terrainColors
+      ? [terrainColors.topSoil, terrainColors.mainSoil]
+      : ['#B8956A', '#A08060', '#C8A878'];
+    for (let i = 0; i < 8; i++) {
+      const offsetAngle = Math.random() * Math.PI * 2;
+      const offsetDist = Math.random() * explosionRadius * 0.5;
+      this.lingeringDustClouds.push({
+        x: x + Math.cos(offsetAngle) * offsetDist,
+        y: y + Math.sin(offsetAngle) * offsetDist,
+        vx: (Math.random() - 0.5) * 20, // Slow initial drift
+        vy: -15 - Math.random() * 25, // Slow rise
+        size: 15 + Math.random() * 15,
+        maxSize: 40 + Math.random() * 30,
+        life: 2.5 + Math.random() * 1.5,
+        maxLife: 4.0,
+        alpha: 0.5 + Math.random() * 0.3,
+        color: dustColors[Math.floor(Math.random() * dustColors.length)],
       });
     }
 
@@ -192,6 +276,21 @@ export class Explosion {
 
     // Initial brightness flash
     this.brightnessFlash = 0.8;
+  }
+
+  // Generate irregular polygon vertices for debris chunks
+  private generateRandomShape(numPoints: number): { x: number; y: number }[] {
+    const vertices: { x: number; y: number }[] = [];
+    for (let i = 0; i < numPoints; i++) {
+      const angle = (i / numPoints) * Math.PI * 2;
+      // Randomize radius for irregular shape (0.5 to 1.0 of base radius)
+      const radius = 0.5 + Math.random() * 0.5;
+      vertices.push({
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius,
+      });
+    }
+    return vertices;
   }
 
   applyDamage(ants: Ant[], terrain: Terrain, _shooter: Ant): void {
@@ -287,7 +386,7 @@ export class Explosion {
     return force;
   }
 
-  update(deltaTime: number): void {
+  update(deltaTime: number, wind: number = 0): void {
     if (!this.active) return;
 
     // Expand explosion
@@ -378,11 +477,40 @@ export class Explosion {
     }
     compactArray(this.smokeWaveParticles, s => s.life > 0);
 
+    // Update terrain debris chunks (larger, irregular shapes affected by wind)
+    for (const chunk of this.terrainDebrisChunks) {
+      chunk.x += chunk.vx * deltaTime;
+      chunk.y += chunk.vy * deltaTime;
+      chunk.vy += 250 * deltaTime; // Gravity
+      chunk.vx += wind * 0.5 * deltaTime; // Wind affects horizontal movement
+      chunk.rotation += chunk.rotationSpeed * deltaTime;
+      chunk.life -= deltaTime;
+    }
+    compactArray(this.terrainDebrisChunks, c => c.life > 0);
+
+    // Update lingering dust clouds (drift with wind, expand over time)
+    for (const cloud of this.lingeringDustClouds) {
+      cloud.x += cloud.vx * deltaTime;
+      cloud.y += cloud.vy * deltaTime;
+      cloud.vx += wind * 0.8 * deltaTime; // Wind drift multiplier
+      cloud.vx *= 0.98; // Air resistance
+      cloud.vy *= 0.99; // Slow vertical deceleration
+      cloud.size += 8 * deltaTime; // Expand over time
+      cloud.size = Math.min(cloud.size, cloud.maxSize);
+      cloud.life -= deltaTime;
+      // Fade out as life decreases
+      const lifeRatio = cloud.life / cloud.maxLife;
+      cloud.alpha = 0.5 * lifeRatio;
+    }
+    compactArray(this.lingeringDustClouds, c => c.life > 0);
+
     // Check if explosion is complete
     const hasActiveParticles = this.particles.length > 0 ||
       this.debrisChunks.length > 0 ||
       this.emberParticles.length > 0 ||
-      this.smokeWaveParticles.length > 0;
+      this.smokeWaveParticles.length > 0 ||
+      this.terrainDebrisChunks.length > 0 ||
+      this.lingeringDustClouds.length > 0;
 
     if (this.alpha <= 0 && this.shockwaveAlpha <= 0 && !this.secondaryExplosionActive && !hasActiveParticles) {
       this.active = false;
@@ -569,5 +697,67 @@ export class Explosion {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    // Draw terrain debris chunks (larger, irregular polygons)
+    for (const chunk of this.terrainDebrisChunks) {
+      const lifeRatio = chunk.life / chunk.maxLife;
+      const alpha = Math.min(1, lifeRatio * 1.5);
+
+      ctx.save();
+      ctx.translate(chunk.x, chunk.y);
+      ctx.rotate(chunk.rotation);
+      ctx.globalAlpha = alpha;
+
+      // Draw irregular polygon using pre-generated vertices
+      ctx.fillStyle = chunk.color;
+      ctx.beginPath();
+      for (let i = 0; i < chunk.vertices.length; i++) {
+        const v = chunk.vertices[i];
+        const px = v.x * chunk.size;
+        const py = v.y * chunk.size;
+        if (i === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Add darker outline for depth
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    // Draw lingering dust clouds (soft, expanding circles)
+    for (const cloud of this.lingeringDustClouds) {
+      // Parse cloud color to extract RGB values
+      const colorMatch = cloud.color.match(/#([A-Fa-f0-9]{6})/);
+      let r = 180, g = 150, b = 120; // Default brownish dust
+      if (colorMatch) {
+        const hex = parseInt(colorMatch[1], 16);
+        r = (hex >> 16) & 255;
+        g = (hex >> 8) & 255;
+        b = hex & 255;
+      }
+
+      // Main dust cloud
+      const gradient = ctx.createRadialGradient(
+        cloud.x, cloud.y, 0,
+        cloud.x, cloud.y, cloud.size
+      );
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${cloud.alpha * 0.6})`);
+      gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${cloud.alpha * 0.3})`);
+      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }

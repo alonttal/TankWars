@@ -38,6 +38,10 @@ export interface AntRenderData {
   fireParticles: FireParticle[];
   damageNumbers: DamageNumber[];
   activeBuffs: ActiveBuff[];
+  isCelebrating: boolean;
+  celebrationBounceY: number;
+  celebrationTime: number;
+  celebrationPhase: number;
 }
 
 export class AntRenderer {
@@ -243,8 +247,16 @@ export class AntRenderer {
     const direction = ant.facingRight ? 1 : -1;
 
     // Convert world position to pixel grid (2x2 scale)
+    // Apply celebration bounce offset to Y position
     const baseX = Math.floor(ant.x / ANT_PIXEL_SCALE);
-    const baseY = Math.floor(ant.y / ANT_PIXEL_SCALE);
+    const celebrationOffset = ant.isCelebrating ? Math.floor(ant.celebrationBounceY / ANT_PIXEL_SCALE) : 0;
+    const baseY = Math.floor(ant.y / ANT_PIXEL_SCALE) + celebrationOffset;
+
+    // Check if we should render victory pose (celebration phase 2)
+    if (ant.isCelebrating && ant.celebrationPhase === 2) {
+      this.renderVictoryPose(ctx, ant, baseX, baseY, direction);
+      return;
+    }
 
     // Colors
     let bodyColor = '#2a2a2a';
@@ -268,11 +280,12 @@ export class AntRenderer {
       helmetDark = this.darkenColor(ant.color, darken + 30);
     }
 
-    // Animation offset
-    const breatheOffset = Math.floor(Math.sin(ant.idleTime * 2) * 0.5);
-    // Faster and more pronounced leg animation when walking
-    const legSpeed = ant.isWalking ? 16 : 4;
-    const legAmplitude = ant.isWalking ? 2 : 1;
+    // Animation offset - faster and more exaggerated when celebrating
+    const celebrationSpeedMult = ant.isCelebrating ? 3 : 1;
+    const breatheOffset = Math.floor(Math.sin(ant.idleTime * 2 * celebrationSpeedMult) * (ant.isCelebrating ? 1 : 0.5));
+    // Faster and more pronounced leg animation when walking or celebrating
+    const legSpeed = ant.isCelebrating ? 24 : (ant.isWalking ? 16 : 4);
+    const legAmplitude = ant.isCelebrating ? 3 : (ant.isWalking ? 2 : 1);
     const legAnim = Math.floor(Math.sin(ant.idleTime * legSpeed) * legAmplitude);
 
     // Weapon angle
@@ -575,7 +588,9 @@ export class AntRenderer {
     }
 
     // === ANTENNAE ===
-    const antennaWave = Math.floor(Math.sin(ant.idleTime * 4) * 1);
+    const antennaSpeed = ant.isCelebrating ? 12 : 4;
+    const antennaAmplitude = ant.isCelebrating ? 2 : 1;
+    const antennaWave = Math.floor(Math.sin(ant.idleTime * antennaSpeed) * antennaAmplitude);
     // Left antenna
     this.drawPixel(ctx, baseX + direction * 5 + antennaWave, baseY - 18 + breatheOffset, bodyDark);
     this.drawPixel(ctx, baseX + direction * 4 + antennaWave, baseY - 19 + breatheOffset, bodyDark);
@@ -623,6 +638,173 @@ export class AntRenderer {
     // Health fill
     for (let i = 0; i < healthPixels; i++) {
       this.drawPixel(ctx, baseX + direction * i, healthBarY, healthColor);
+    }
+  }
+
+  // Render victory pose for celebrating ants (phase 2)
+  renderVictoryPose(ctx: CanvasRenderingContext2D, ant: AntRenderData, baseX: number, baseY: number, direction: number): void {
+    // Colors
+    const bodyColor = '#2a2a2a';
+    const bodyDark = '#1a1a1a';
+    const bodyLight = '#3a3a3a';
+    const helmetColor = ant.color;
+    const helmetLight = this.lightenColor(ant.color, 50);
+    const helmetDark = this.darkenColor(ant.color, 30);
+
+    // Gentle breathing
+    const breatheOffset = Math.floor(Math.sin(ant.idleTime * 2) * 0.5);
+
+    // === SHADOW (wider for spread stance) ===
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.fillRect((baseX - 10) * ANT_PIXEL_SCALE, (baseY + 1) * ANT_PIXEL_SCALE, 22 * ANT_PIXEL_SCALE, 2 * ANT_PIXEL_SCALE);
+
+    // === BACK LEGS (spread wider in victory pose) ===
+    // Rear pair - spread outward
+    this.drawPixel(ctx, baseX - direction * 8, baseY - 2, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 10, baseY - 1, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 12, baseY, bodyDark);
+    // Second rear - also spread
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 3, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 7, baseY - 2, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 9, baseY - 1, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 10, baseY, bodyDark);
+
+    // === ABDOMEN ===
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 6 + breatheOffset, bodyLight);
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 6 + breatheOffset, bodyLight);
+    this.drawPixel(ctx, baseX - direction * 3, baseY - 5 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 5 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 5 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 6, baseY - 5 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 3, baseY - 4 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 4 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 4 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX - direction * 6, baseY - 4 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 7, baseY - 4 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 4, baseY - 3 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 5, baseY - 3 + breatheOffset, bodyDark);
+
+    // === PETIOLE ===
+    this.drawPixel(ctx, baseX - direction * 1, baseY - 5 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - direction * 2, baseY - 5 + breatheOffset, bodyDark);
+
+    // === THORAX ===
+    this.drawPixel(ctx, baseX, baseY - 7 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 1, baseY - 7 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX, baseY - 6 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 1, baseY - 6 + breatheOffset, bodyLight);
+    this.drawPixel(ctx, baseX + direction * 2, baseY - 7 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 2, baseY - 8 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 3, baseY - 9 + breatheOffset, bodyDark);
+
+    // === FRONT/MIDDLE LEGS (spread wider) ===
+    // Middle pair - spread outward
+    this.drawPixel(ctx, baseX, baseY - 5 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX - 2, baseY - 4, bodyDark);
+    this.drawPixel(ctx, baseX - 4, baseY - 3, bodyDark);
+    this.drawPixel(ctx, baseX - 6, baseY - 2, bodyDark);
+    // Front pair - spread wide
+    this.drawPixel(ctx, baseX + direction * 2, baseY - 6, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 4, baseY - 5, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 4, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 3, bodyDark);
+
+    // === NECK ===
+    this.drawPixel(ctx, baseX + direction * 4, baseY - 10 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 11 + breatheOffset, bodyDark);
+
+    // === HEAD ===
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 15 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 15 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 14 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 14 + breatheOffset, bodyLight);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 14 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 14 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 13 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 13 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 13 + breatheOffset, bodyColor);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 13 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 12 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 12 + breatheOffset, bodyDark);
+
+    // === HELMET ===
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 17 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 17 + breatheOffset, helmetLight);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 17 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 17 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 4, baseY - 16 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 5, baseY - 16 + breatheOffset, helmetLight);
+    this.drawPixel(ctx, baseX + direction * 6, baseY - 16 + breatheOffset, helmetLight);
+    this.drawPixel(ctx, baseX + direction * 7, baseY - 16 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 16 + breatheOffset, helmetColor);
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 16 + breatheOffset, helmetDark);
+    this.drawPixel(ctx, baseX + direction * 4, baseY - 15 + breatheOffset, helmetDark);
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, helmetDark);
+    this.drawPixel(ctx, baseX + direction * 10, baseY - 15 + breatheOffset, helmetDark);
+
+    // === HAPPY EYE (curved smile shape) ===
+    // Eye white curved upward (happy squint)
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 15 + breatheOffset, '#fff');
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 14 + breatheOffset, '#fff');
+    this.drawPixel(ctx, baseX + direction * 10, baseY - 15 + breatheOffset, '#fff');
+    // Curved bottom to show smile
+    this.drawPixel(ctx, baseX + direction * 9, baseY - 15 + breatheOffset, '#333');
+
+    // === ANTENNAE (pointing upward in celebration) ===
+    const celebrationWave = Math.floor(Math.sin(ant.idleTime * 8) * 1);
+    // Left antenna - pointing up and out
+    this.drawPixel(ctx, baseX + direction * 4, baseY - 18 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 3 - celebrationWave, baseY - 20 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 2 - celebrationWave, baseY - 22 + breatheOffset, bodyColor);
+    // Right antenna - pointing up and out
+    this.drawPixel(ctx, baseX + direction * 8, baseY - 18 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 9 + celebrationWave, baseY - 20 + breatheOffset, bodyDark);
+    this.drawPixel(ctx, baseX + direction * 10 + celebrationWave, baseY - 22 + breatheOffset, bodyColor);
+
+    // === SPARKLE PARTICLES around the ant ===
+    this.renderVictorySparkles(ctx, baseX, baseY, ant.celebrationTime);
+
+    // === HEALTH BAR ===
+    const healthPercent = ant.health / 100;
+    const healthBarY = baseY - 22 + breatheOffset;
+    const healthPixels = Math.ceil(healthPercent * 12);
+    const healthColor = healthPercent > 0.5 ? '#4ECB71' : healthPercent > 0.25 ? '#FFD93D' : '#FF6B6B';
+
+    for (let i = 0; i < 12; i++) {
+      this.drawPixel(ctx, baseX + direction * i, healthBarY, '#333');
+    }
+    for (let i = 0; i < healthPixels; i++) {
+      this.drawPixel(ctx, baseX + direction * i, healthBarY, healthColor);
+    }
+  }
+
+  // Render sparkles around victory pose ant
+  renderVictorySparkles(ctx: CanvasRenderingContext2D, baseX: number, baseY: number, celebrationTime: number): void {
+    const sparkleCount = 6;
+    const sparkleColors = ['#FFD700', '#FFFFFF', '#FFA500', '#FFFF00'];
+
+    for (let i = 0; i < sparkleCount; i++) {
+      // Each sparkle has its own phase offset
+      const phase = celebrationTime * 3 + (i / sparkleCount) * Math.PI * 2;
+      const radius = 20 + Math.sin(phase * 0.5) * 5;
+      const angle = phase + (i / sparkleCount) * Math.PI * 2;
+
+      // Only show sparkle during certain phase of animation (twinkling effect)
+      const twinkle = Math.sin(celebrationTime * 8 + i * 1.5);
+      if (twinkle < 0.3) continue;
+
+      const sx = baseX + Math.cos(angle) * radius / ANT_PIXEL_SCALE;
+      const sy = (baseY - 10) + Math.sin(angle) * radius / ANT_PIXEL_SCALE;
+
+      const color = sparkleColors[i % sparkleColors.length];
+      const size = 1 + Math.floor(twinkle);
+
+      // Draw sparkle as a small cross
+      ctx.fillStyle = color;
+      // Vertical line
+      ctx.fillRect(sx * ANT_PIXEL_SCALE, (sy - size) * ANT_PIXEL_SCALE, ANT_PIXEL_SCALE, (size * 2 + 1) * ANT_PIXEL_SCALE);
+      // Horizontal line
+      ctx.fillRect((sx - size) * ANT_PIXEL_SCALE, sy * ANT_PIXEL_SCALE, (size * 2 + 1) * ANT_PIXEL_SCALE, ANT_PIXEL_SCALE);
     }
   }
 

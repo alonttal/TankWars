@@ -18,6 +18,14 @@ export interface InputCallbacks {
   getSelectedSettingIndex: () => number;
   setSelectedSettingIndex: (index: number) => void;
 
+  // Difficulty submenu
+  getMenuState: () => 'main' | 'difficulty';
+  getDifficultyItemCount: () => number;
+  getSelectedDifficultyIndex: () => number;
+  setSelectedDifficultyIndex: (index: number) => void;
+  selectDifficulty: () => void;
+  backToMainMenu: () => void;
+
   // State transitions
   pauseGame: () => void;
   resumeGame: () => void;
@@ -101,6 +109,11 @@ export class InputManager {
       if (this.weaponMenuOpen) {
         this.weaponMenuOpen = false;
         this.callbacks.closeWeaponMenu();
+        return;
+      }
+      // Handle difficulty submenu back
+      if (state === 'MENU' && this.callbacks.getMenuState() === 'difficulty') {
+        this.callbacks.backToMainMenu();
         return;
       }
       if (state === 'SETTINGS') {
@@ -289,13 +302,31 @@ export class InputManager {
     if (state === 'MENU') {
       const rect = canvas.getBoundingClientRect();
       const y = e.clientY - rect.top;
-      const menuStartY = 260;
-      const itemHeight = 40;
+
+      if (this.callbacks.getMenuState() === 'difficulty') {
+        // Difficulty submenu click handling
+        const menuStartY = 180;
+        const itemHeight = 55;
+        const itemCount = this.callbacks.getDifficultyItemCount();
+        for (let i = 0; i < itemCount; i++) {
+          const itemY = menuStartY + i * itemHeight;
+          if (y >= itemY - 16 && y <= itemY + 22) {
+            this.callbacks.setSelectedDifficultyIndex(i);
+            this.callbacks.selectDifficulty();
+            return;
+          }
+        }
+        return;
+      }
+
+      // Main menu click handling
+      const menuStartY = 200;
+      const itemHeight = 50;
 
       const menuItems = this.callbacks.getMenuItems();
       for (let i = 0; i < menuItems.length; i++) {
         const itemY = menuStartY + i * itemHeight;
-        if (y >= itemY - 15 && y <= itemY + 15) {
+        if (y >= itemY - 14 && y <= itemY + 22) {
           menuItems[i].action();
           return;
         }
@@ -344,6 +375,10 @@ export class InputManager {
   }
 
   handleMenuInput(e: KeyboardEvent): void {
+    if (this.callbacks.getMenuState() === 'difficulty') {
+      this.handleDifficultyMenuInput(e);
+      return;
+    }
     const menuItems = this.callbacks.getMenuItems();
     this.handleGenericMenuInput(
       e,
@@ -351,6 +386,17 @@ export class InputManager {
       () => this.callbacks.getSelectedMenuItem(),
       (index) => this.callbacks.setSelectedMenuItem(index),
       () => menuItems[this.callbacks.getSelectedMenuItem()].action()
+    );
+  }
+
+  private handleDifficultyMenuInput(e: KeyboardEvent): void {
+    const itemCount = this.callbacks.getDifficultyItemCount();
+    this.handleGenericMenuInput(
+      e,
+      itemCount,
+      () => this.callbacks.getSelectedDifficultyIndex(),
+      (index) => this.callbacks.setSelectedDifficultyIndex(index),
+      () => this.callbacks.selectDifficulty()
     );
   }
 
